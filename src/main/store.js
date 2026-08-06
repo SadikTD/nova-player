@@ -18,6 +18,7 @@ const DEFAULTS = {
     subPos: 90,             // 100 = bottom edge; lower = higher on screen
     rememberPosition: true,
     defaultSpeed: 1.0,
+    seekStep: 5,            // seconds per arrow-key / skip-button press
     audioLang: '',
     subLang: ''
   }

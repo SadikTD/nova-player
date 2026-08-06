@@ -296,6 +296,11 @@ function renderSettings() {
       <select id="set-speed">
         ${[0.5, 0.75, 1, 1.25, 1.5, 2].map(v => `<option value="${v}" ${s.defaultSpeed == v ? 'selected' : ''}>${v}×</option>`).join('')}
       </select></div>
+    <div class="setting-row"><div><div class="setting-label">Arrow key skip</div>
+      <div class="setting-hint">How far ← and → jump, and the skip buttons in the player</div></div>
+      <select id="set-seekstep">
+        ${[3, 5, 10, 15, 30].map(v => `<option value="${v}" ${(s.seekStep ?? 5) == v ? 'selected' : ''}>${v} seconds</option>`).join('')}
+      </select></div>
   </div>
   <div class="settings-card"><h3>Subtitles</h3>
     <div class="setting-row"><div><div class="setting-label">Subtitle size</div></div>
@@ -313,9 +318,13 @@ function renderSettings() {
       <input type="text" class="box" id="set-alang" value="${esc(s.audioLang || '')}" style="width:110px"></div>
   </div>
   <div class="settings-card"><h3>About</h3>
-    <div class="setting-hint" style="line-height:1.9" id="about-line">
-      Nova Player — your MX Player for the desktop. Built on the mpv engine, styled with uosc.<br>
-      No telemetry. No ads. <b>No update pop-ups, ever.</b>
+    <div class="setting-row"><div><div class="setting-label">Version</div>
+      <div class="setting-hint" id="upd-status">Checking…</div></div>
+      <button class="btn ghost" id="upd-check" style="padding:6px 14px;font-size:12px">Check now</button></div>
+    <div class="setting-hint" style="line-height:1.9;margin-top:10px">
+      Nova Player — built on the mpv playback engine.<br>
+      No telemetry. No ads. Updates install quietly when you close the app —
+      <b>you will never get an update pop-up.</b>
     </div>
   </div>`;
 }
@@ -379,6 +388,7 @@ function bindView() {
     on('#set-resume', 'change', e => save({ rememberPosition: e.target.checked }));
     on('#set-volmax', 'change', e => save({ volumeMax: +e.target.value }));
     on('#set-speed', 'change', e => save({ defaultSpeed: +e.target.value }));
+    on('#set-seekstep', 'change', e => save({ seekStep: +e.target.value }));
     on('#set-subscale', 'input', e => {
       $('#subscale-val').textContent = Math.round(e.target.value * 100) + '%';
       save({ subScale: +e.target.value });
@@ -389,7 +399,25 @@ function bindView() {
     });
     on('#set-slang', 'change', e => save({ subLang: e.target.value.trim() }));
     on('#set-alang', 'change', e => save({ audioLang: e.target.value.trim() }));
+    on('#upd-check', 'click', async () => { paintUpdate(await window.nova.updateCheck()); });
+    window.nova.updateState().then(paintUpdate);
   }
+}
+
+function paintUpdate(u) {
+  const el = $('#upd-status');
+  if (!el || !u) return;
+  const v = u.currentVersion ? 'v' + u.currentVersion : '';
+  const text = {
+    checking: 'Checking for updates…',
+    current: 'Up to date',
+    downloading: `Downloading ${u.version ? 'v' + u.version : 'update'}${u.percent ? ' — ' + u.percent + '%' : ''}…`,
+    ready: `v${u.version} ready — installs when you close the app`,
+    disabled: u.reason === 'development build' ? 'Development build' : 'Updates unavailable',
+    error: 'Could not check right now',
+    idle: ''
+  }[u.status] || '';
+  el.textContent = [v, text].filter(Boolean).join(' · ');
 }
 
 function playSingle(path) {
@@ -589,6 +617,8 @@ async function refresh() {
     document.body.appendChild(el);
   }
 })();
+
+window.nova.on('update-state', u => { if (currentView === 'settings') paintUpdate({ ...u, currentVersion: u.currentVersion }); });
 
 window.nova.on('library-updated', refresh);
 window.nova.on('item-updated', ({ path, item }) => {

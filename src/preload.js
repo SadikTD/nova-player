@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const EVENTS = [
   'library-updated', 'item-updated', 'progress',
-  'playback-started', 'playback-ended', 'play-error', 'win-state'
+  'playback-started', 'playback-ended', 'play-error', 'win-state', 'update-state'
 ];
 
 contextBridge.exposeInMainWorld('nova', {
@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('nova', {
   resizeStart: edge => ipcRenderer.invoke('win-resize-start', edge),
   resizeEnd: () => ipcRenderer.invoke('win-resize-end'),
   appInfo: () => ipcRenderer.invoke('app-info'),
+  updateState: () => ipcRenderer.invoke('update-state'),
+  updateCheck: () => ipcRenderer.invoke('update-check'),
   pathForFile: f => webUtils.getPathForFile(f),
   on: (event, cb) => {
     if (!EVENTS.includes(event)) return;

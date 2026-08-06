@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('player', {
   resizeEnd: () => ipcRenderer.invoke('win-resize-end'),
   saveSetting: patch => ipcRenderer.invoke('player-save-setting', patch),
   loadSubtitle: () => ipcRenderer.invoke('player-load-sub'),
-  onProp: cb => ipcRenderer.on('mpv-prop', (_e, p) => cb(p))
+  onProp: cb => ipcRenderer.on('mpv-prop', (_e, p) => cb(p)),
+  onLink: cb => ipcRenderer.on('mpv-link', (_e, p) => cb(p))
 });
