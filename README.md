@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.0.0-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.1-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -25,8 +25,8 @@
 
 | | |
 |---|---|
-| **`Nova-Player-Setup-1.0.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
-| **`Nova-Player-1.0.0-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
+| **`Nova-Player-Setup-1.0.1.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
+| **`Nova-Player-1.0.1-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
 
 Requires 64-bit Windows 10 or 11.
 
@@ -39,7 +39,7 @@ Nova Player isn't signed with a commercial code-signing certificate, so the firs
 This is expected for any independently released app without a paid certificate. Click **More info → Run anyway** to continue. If you'd like to confirm the download arrived intact, `SHA256SUMS.txt` is attached to every release:
 
 ```powershell
-Get-FileHash .\Nova-Player-Setup-1.0.0.exe
+Get-FileHash .\Nova-Player-Setup-1.0.1.exe
 ```
 
 ---
@@ -52,14 +52,14 @@ Get-FileHash .\Nova-Player-Setup-1.0.0.exe
 
 **Organises your videos.** Point it at your video folders and it builds a browsable library with generated thumbnails, folder grouping, "Continue watching", watch history, playlists and search.
 
-**Stays out of the way.** No ads. No telemetry. No accounts. No auto-updater, and no pop-up ever asking you to update.
+**Stays out of the way.** No ads. No telemetry. No accounts. Updates download quietly in the background and apply when you close the app — **you will never see an update pop-up.**
 
 ### In the player
 
 A full control bar that auto-hides while you watch:
 
 - Seekbar with hover time preview and chapter markers
-- Play/pause, previous/next, ±10 second skips
+- Play/pause, previous/next, and skip buttons (5 seconds by default, configurable)
 - Volume slider with boost up to 200%
 - **Speed** — presets from 0.25× to 3×, plus a fine slider
 - **Audio** — switch tracks, correct audio sync
@@ -79,7 +79,7 @@ A full control bar that auto-hides while you watch:
 | Mouse wheel | Volume |
 | Right-click | Quick menu |
 | <kbd>Space</kbd> | Play / pause |
-| <kbd>←</kbd> <kbd>→</kbd> | Seek 10 seconds |
+| <kbd>←</kbd> <kbd>→</kbd> | Seek (5 seconds by default — configurable in Settings) |
 | <kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd> | Seek 60 seconds |
 | <kbd>[</kbd> <kbd>]</kbd> | Playback speed &nbsp;·&nbsp; <kbd>Backspace</kbd> resets |
 | <kbd>L</kbd> | A–B repeat |

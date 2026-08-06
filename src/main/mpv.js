@@ -59,9 +59,13 @@ class MpvController {
   isActive() { return !!this.proc; }
 
   async play(files, startIndex = 0) {
+    this._pendingResume = this._storedResume(files[startIndex]);
     if (this.proc) {
       await this.command(['playlist-clear']);
       await this.command(['loadfile', files[startIndex], 'replace']);
+      // mpv stays paused if the previous file ended (keep-open pauses at EOF),
+      // which otherwise leaves the newly chosen video frozen on frame one.
+      await this.command(['set_property', 'pause', false]);
       await this._appendRest(files, startIndex);
       return;
     }
@@ -98,6 +102,7 @@ class MpvController {
     this.proc.stderr?.on('data', d => { this._lastErr = String(d).slice(0, 2000); });
 
     await this._connect();
+    this._startWatchdog();
     await this._appendRest(files, startIndex);
 
     this._hookWindow(hwnd);
@@ -128,7 +133,7 @@ class MpvController {
         clearInterval(this._raiseTimer);
         this._raiseTimer = setInterval(() => {
           if (this.proc && this.childHwnd) win32.raiseChild(this.childHwnd);
-        }, 500);
+        }, 2000);
       } else setTimeout(locate, 120);
     };
     locate();
@@ -180,7 +185,16 @@ class MpvController {
     this.overlay.loadFile(path.join(__dirname, '..', 'renderer', 'player.html'));
     this.overlay.once('ready-to-show', () => {
       this._syncOverlayBounds();
-      if (this.overlay) this.overlay.show();
+      if (!this.overlay) return;
+      this.overlay.show();
+      this.overlay.focus();
+      // Keyboard shortcuts (including Esc) only reach the overlay while it holds
+      // focus, so take it back whenever the app is activated.
+      clearInterval(this._focusTimer);
+      this._focusTimer = setInterval(() => {
+        if (!this.overlay || this.overlay.isDestroyed() || !this.proc) return;
+        if (this.win.isFocused() && !this.overlay.isFocused()) this.overlay.focus();
+      }, 1000);
     });
     this.overlay.on('closed', () => {
       this.overlay = null;
@@ -208,10 +222,7 @@ class MpvController {
         if (!this.proc) return reject(new Error('mpv exited during startup: ' + (this._lastErr || '')));
         const sock = net.connect(`\\\\.\\pipe\\${this.pipeName}`);
         sock.on('connect', () => {
-          this.sock = sock;
-          sock.setEncoding('utf8');
-          sock.on('data', d => this._onData(d));
-          sock.on('error', () => {});
+          this._attachSocket(sock);
           this._init().then(resolve, reject);
         });
         sock.on('error', () => {
@@ -222,6 +233,91 @@ class MpvController {
       };
       tryConnect();
     });
+  }
+
+  _attachSocket(sock) {
+    this.sock = sock;
+    this.buf = '';
+    this._lastEventAt = Date.now();
+    sock.setEncoding('utf8');
+    sock.on('data', d => { this._lastEventAt = Date.now(); this._onData(d); });
+    // A dropped control channel used to be swallowed here, leaving the app alive
+    // but unable to control or observe playback — every button a silent no-op.
+    sock.on('error', err => this._onSocketLost('error: ' + (err && err.message)));
+    sock.on('close', () => this._onSocketLost('closed'));
+    sock.on('end', () => this._onSocketLost('ended'));
+  }
+
+  _onSocketLost(why) {
+    if (!this.proc || this._reconnecting || this._stopping) return;
+    if (this.sock) { try { this.sock.destroy(); } catch (_) {} }
+    this.sock = null;
+    // The pipe also closes when mpv is quitting normally, which is not a fault.
+    // Give the exit handler a moment to settle before treating this as a drop.
+    setTimeout(() => {
+      if (!this.proc || this._reconnecting || this._stopping) return;
+      if (this.proc.exitCode !== null || this.proc.signalCode !== null) return;
+      console.warn('[mpv] control channel lost (' + why + ') — reconnecting');
+      this._reconnect();
+    }, 400);
+  }
+
+  /* Re-establish the control channel without interrupting playback. */
+  async _reconnect() {
+    if (this._reconnecting || !this.proc) return;
+    this._reconnecting = true;
+    this._sendOverlay('mpv-link', { state: 'reconnecting' });
+
+    for (let attempt = 1; attempt <= 12 && this.proc; attempt++) {
+      await new Promise(r => setTimeout(r, 250));
+      const ok = await new Promise(resolve => {
+        const sock = net.connect(`\\\\.\\pipe\\${this.pipeName}`);
+        const done = v => { sock.removeAllListeners(); resolve(v); if (!v) sock.destroy(); };
+        sock.once('connect', () => { this._attachSocket(sock); done(true); });
+        sock.once('error', () => done(false));
+        setTimeout(() => done(false), 1500);
+      });
+      if (!ok) continue;
+
+      try {
+        this.reqId = 1;
+        this.pending.clear();
+        await this._init();                       // re-register property observers
+        this._reconnecting = false;
+        console.warn('[mpv] control channel restored');
+        this._sendOverlay('mpv-link', { state: 'ok' });
+        return;
+      } catch (_) {
+        if (this.sock) { try { this.sock.destroy(); } catch (_) {} }
+        this.sock = null;
+      }
+    }
+
+    // Could not recover: stop cleanly rather than sit there looking frozen.
+    this._reconnecting = false;
+    console.error('[mpv] control channel unrecoverable — stopping playback');
+    this._sendOverlay('mpv-link', { state: 'lost' });
+    try { this.proc.kill(); } catch (_) {}
+  }
+
+  /* Poll the engine; two consecutive failures mean the channel is stale even if
+   * the socket still looks open (which is how the original freeze presented). */
+  _startWatchdog() {
+    clearInterval(this._watchdog);
+    this._watchdog = setInterval(async () => {
+      if (!this.proc || this._reconnecting) return;
+      if (!this.sock) return this._onSocketLost('no socket');
+      try {
+        await this.command(['get_property', 'time-pos']);
+        this._missedBeats = 0;
+      } catch (_) {
+        this._missedBeats = (this._missedBeats || 0) + 1;
+        if (this._missedBeats >= 2) {
+          this._missedBeats = 0;
+          this._onSocketLost('unresponsive');
+        }
+      }
+    }, 10000);
   }
 
   async _init() {
@@ -249,7 +345,22 @@ class MpvController {
     }
   }
 
+  /* Resume point from our own store. mpv's watch-later file is only written on a
+   * clean exit, so it is lost whenever the app is killed — ours is written every
+   * few seconds and survives that. */
+  _storedResume(file) {
+    const it = this.store.load().items[file];
+    if (!it || !it.progress || !it.duration) return null;
+    if (it.progress < 15) return null;                       // barely started
+    if (it.progress > it.duration - 20) return null;         // effectively finished
+    return { file, pos: it.progress };
+  }
+
   _onMpvEvent(msg) {
+    if (msg.event === 'file-loaded') {
+      this._applyPendingResume();
+      return;
+    }
     if (msg.event !== 'property-change') return;
     const { name, data } = msg;
     this.props[name] = data;
@@ -274,6 +385,19 @@ class MpvController {
     this._sendOverlay('mpv-prop', { name, data });
   }
 
+  /* Seek to our stored position once the file is actually open. If mpv's own
+   * watch-later already restored it, this lands on the same spot and is a no-op. */
+  async _applyPendingResume() {
+    const r = this._pendingResume;
+    this._pendingResume = null;
+    if (!r || r.file !== this._path) return;
+    try {
+      const at = await this.command(['get_property', 'time-pos']);
+      if (typeof at === 'number' && Math.abs(at - r.pos) < 5) return;  // already there
+      await this.command(['seek', r.pos, 'absolute+exact']);
+    } catch (_) { /* resume is best-effort */ }
+  }
+
   _trackProgress() {
     const now = Date.now();
     if (this._lastSave && now - this._lastSave < 3000) return;
@@ -283,13 +407,17 @@ class MpvController {
 
   _saveProgress(finished) {
     if (!this._path) return;
+    const pos = finished ? (this._duration || 0) : (this._timePos || 0);
     const data = this.store.load();
-    const it = data.items[this._path] || (data.items[this._path] = { addedAt: Date.now() });
-    it.lastPlayed = Date.now();
-    if (this._duration) it.duration = this._duration;
-    it.progress = finished ? (this._duration || 0) : (this._timePos || 0);
+    const it = data.items[this._path];
+    // Never let a just-loaded file sitting at 0 wipe out an existing resume point.
+    if (!finished && pos < 1 && it && it.progress > 1) return;
+    const entry = it || (data.items[this._path] = { addedAt: Date.now() });
+    entry.lastPlayed = Date.now();
+    if (this._duration) entry.duration = this._duration;
+    entry.progress = pos;
     this.store.save();
-    this.onEvent('progress', { path: this._path, progress: it.progress, duration: it.duration });
+    this.onEvent('progress', { path: this._path, progress: entry.progress, duration: entry.duration });
   }
 
   _markHistory(p) {
@@ -330,12 +458,20 @@ class MpvController {
 
   async stop() {
     if (!this.proc) return;
+    this._stopping = true;
     try { await this.command(['quit-watch-later']); } catch (_) { try { this.proc.kill(); } catch (_) {} }
   }
 
   _onExit() {
     clearInterval(this._raiseTimer);
     this._raiseTimer = null;
+    clearInterval(this._watchdog);
+    this._watchdog = null;
+    clearInterval(this._focusTimer);
+    this._focusTimer = null;
+    this._reconnecting = false;
+    this._stopping = false;
+    this._pendingResume = null;
     this._saveProgress(false);
     this.proc = null;
     this.sock?.destroy();

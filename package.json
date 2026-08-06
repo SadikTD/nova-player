@@ -1,7 +1,7 @@
 {
   "name": "nova-player",
   "productName": "Nova Player",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A premium desktop media player inspired by MX Player — plays everything, beautifully.",
   "main": "src/main/main.js",
   "author": "Sadik Hossain",
@@ -14,13 +14,14 @@
     "dist": "electron-builder --win"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "koffi": "^2.8.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "7zip-min": "^1.4.5",
     "electron": "^37.0.0",
     "electron-builder": "^26.0.0",
-    "7zip-min": "^1.4.5",
-    "@resvg/resvg-js": "^2.6.2",
     "png-to-ico": "^2.1.8"
   },
   "build": {
@@ -34,38 +35,113 @@
       "src/**/*",
       "package.json"
     ],
-    "electronLanguages": [ "en-US" ],
+    "electronLanguages": [
+      "en-US"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SadikTD",
+        "repo": "nova-player"
+      }
+    ],
     "extraResources": [
       {
         "from": "vendor/mpv",
         "to": "mpv",
-        "filter": [ "**/*", "!doc/**", "!installer/**", "!*.bat" ]
+        "filter": [
+          "**/*",
+          "!doc/**",
+          "!installer/**",
+          "!*.bat"
+        ]
       },
-      { "from": "mpv-config", "to": "mpv-config" }
+      {
+        "from": "mpv-config",
+        "to": "mpv-config"
+      }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": [ "x64" ] },
-        { "target": "zip", "arch": [ "x64" ] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.ico",
       "fileAssociations": [
-        { "ext": "mkv", "name": "Matroska Video" },
-        { "ext": "mp4", "name": "MP4 Video" },
-        { "ext": "m4v", "name": "M4V Video" },
-        { "ext": "avi", "name": "AVI Video" },
-        { "ext": "mov", "name": "QuickTime Video" },
-        { "ext": "wmv", "name": "Windows Media Video" },
-        { "ext": "flv", "name": "Flash Video" },
-        { "ext": "webm", "name": "WebM Video" },
-        { "ext": "ts", "name": "MPEG Transport Stream" },
-        { "ext": "m2ts", "name": "Blu-ray Video" },
-        { "ext": "mts", "name": "AVCHD Video" },
-        { "ext": "3gp", "name": "3GP Video" },
-        { "ext": "mpg", "name": "MPEG Video" },
-        { "ext": "mpeg", "name": "MPEG Video" },
-        { "ext": "vob", "name": "DVD Video" },
-        { "ext": "ogv", "name": "Ogg Video" }
+        {
+          "ext": "mkv",
+          "name": "Matroska Video"
+        },
+        {
+          "ext": "mp4",
+          "name": "MP4 Video"
+        },
+        {
+          "ext": "m4v",
+          "name": "M4V Video"
+        },
+        {
+          "ext": "avi",
+          "name": "AVI Video"
+        },
+        {
+          "ext": "mov",
+          "name": "QuickTime Video"
+        },
+        {
+          "ext": "wmv",
+          "name": "Windows Media Video"
+        },
+        {
+          "ext": "flv",
+          "name": "Flash Video"
+        },
+        {
+          "ext": "webm",
+          "name": "WebM Video"
+        },
+        {
+          "ext": "ts",
+          "name": "MPEG Transport Stream"
+        },
+        {
+          "ext": "m2ts",
+          "name": "Blu-ray Video"
+        },
+        {
+          "ext": "mts",
+          "name": "AVCHD Video"
+        },
+        {
+          "ext": "3gp",
+          "name": "3GP Video"
+        },
+        {
+          "ext": "mpg",
+          "name": "MPEG Video"
+        },
+        {
+          "ext": "mpeg",
+          "name": "MPEG Video"
+        },
+        {
+          "ext": "vob",
+          "name": "DVD Video"
+        },
+        {
+          "ext": "ogv",
+          "name": "Ogg Video"
+        }
       ]
     },
     "nsis": {

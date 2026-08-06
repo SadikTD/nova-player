@@ -4,6 +4,7 @@ const fs = require('fs');
 const store = require('./store');
 const { MpvController } = require('./mpv');
 const { Library, VIDEO_EXT } = require('./library');
+const updater = require('./updater');
 
 let win = null;
 let mpv = null;
@@ -198,7 +199,7 @@ ipcMain.handle('player-load-sub', async () => {
 // settings changed from inside the player (e.g. subtitle position)
 ipcMain.handle('player-save-setting', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return;
-  const ALLOWED = new Set(['subPos', 'subScale', 'subBorder', 'defaultSpeed', 'volumeMax']);
+  const ALLOWED = new Set(['subPos', 'subScale', 'subBorder', 'defaultSpeed', 'volumeMax', 'seekStep']);
   const d = store.load();
   for (const [k, v] of Object.entries(patch)) {
     if (ALLOWED.has(k) && typeof v === 'number' && isFinite(v)) d.settings[k] = v;
@@ -265,11 +266,16 @@ ipcMain.handle('app-info', () => ({
   userData: app.getPath('userData')
 }));
 
+ipcMain.handle('update-state', () => updater.getState());
+ipcMain.handle('update-check', () => { updater.check(); return updater.getState(); });
+
 // ---------------- lifecycle ----------------
 app.whenReady().then(() => {
   createWindow();
   // first scan shortly after boot so the UI appears instantly
   setTimeout(() => library.scanAll(), 600);
+  // silent background updates — never prompts, applies on exit
+  setTimeout(() => updater.init(send), 4000);
   // launched via "Open with" on a video file
   if (pendingOpen.length) setTimeout(() => playFiles(pendingOpen, 0), 400);
 });

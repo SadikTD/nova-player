@@ -14,6 +14,10 @@ const SWP_NOACTIVATE = 0x0010;
 const SWP_SHOWWINDOW = 0x0040;
 const SWP_NOMOVE = 0x0002;
 const SWP_NOSIZE = 0x0001;
+// Post the request to the owning thread instead of blocking on it. mpv's window
+// belongs to another process; a synchronous SetWindowPos can stall this thread
+// (and therefore the whole app) whenever mpv's message loop is busy.
+const SWP_ASYNCWINDOWPOS = 0x4000;
 const HWND_TOP = 0n;
 
 function hwndFromBuffer(buf) {
@@ -40,11 +44,13 @@ function findMpvChild(parentHwnd) {
 
 /* Size the child AND keep it above the Chromium render surface (z-order top). */
 function fitChild(childHwnd, x, y, w, h) {
-  SetWindowPos(childHwnd, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  SetWindowPos(childHwnd, HWND_TOP, x, y, w, h,
+    SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS);
 }
 
 function raiseChild(childHwnd) {
-  SetWindowPos(childHwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+  SetWindowPos(childHwnd, HWND_TOP, 0, 0, 0, 0,
+    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_ASYNCWINDOWPOS);
 }
 
 function showChild(childHwnd, visible) {

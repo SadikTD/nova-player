@@ -201,8 +201,8 @@ function onSeekMove(e, force) {
 $('#btn-play').addEventListener('click', () => cmd('cycle', 'pause'));
 $('#btn-prev').addEventListener('click', () => cmd('playlist-prev'));
 $('#btn-next').addEventListener('click', () => cmd('playlist-next'));
-$('#btn-b10').addEventListener('click', () => relSeek(-10));
-$('#btn-f10').addEventListener('click', () => relSeek(10));
+$('#btn-b10').addEventListener('click', () => relSeek(-seekStep()));
+$('#btn-f10').addEventListener('click', () => relSeek(seekStep()));
 $('#btn-mute').addEventListener('click', () => cmd('cycle', 'mute'));
 $('#btn-ab').addEventListener('click', () => { cmd('ab-loop'); toast('A-B loop point'); });
 $('#btn-shot').addEventListener('click', () => { cmd('screenshot'); toast('Screenshot saved to Desktop'); });
@@ -214,8 +214,14 @@ $('#btn-min').addEventListener('click', () => window.player.winCmd('min'));
 $('#btn-max').addEventListener('click', () => window.player.winCmd('max'));
 $('#btn-close').addEventListener('click', () => window.player.winCmd('close'));
 
+function seekStep() {
+  const v = Number(SET.seekStep);
+  return isFinite(v) && v > 0 ? v : 5;
+}
 function relSeek(sec) {
-  cmd('seek', sec, 'relative');
+  // "exact" so a 5s skip really moves 5s — a plain relative seek snaps to the
+  // nearest keyframe, which on many files is 10s or more away.
+  cmd('seek', sec, 'relative+exact');
   suppressUntil = 0;
 }
 
@@ -574,6 +580,13 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'q' && !e.ctrlKey && !e.altKey) return cmd('quit-watch-later');
   if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  // Arrow seeking is handled here so the step stays user-configurable
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.ctrlKey && !e.altKey) {
+    const step = e.shiftKey ? 60 : seekStep();
+    relSeek(e.key === 'ArrowRight' ? step : -step);
+    e.preventDefault();
+    return;
+  }
   let name = KEY_MAP[e.key];
   if (!name) {
     if (e.key.length !== 1) return;
@@ -606,6 +619,20 @@ document.addEventListener('keydown', e => {
   }
 })();
 
+// ---------------- engine connection status ----------------
+// The control channel to the playback engine can drop; the app used to give no
+// sign of it and simply stop responding to every control.
+window.player.onLink(({ state }) => {
+  if (state === 'reconnecting') {
+    toast('Reconnecting to the playback engine…');
+    showUI();
+  } else if (state === 'ok') {
+    toast('Reconnected');
+  } else if (state === 'lost') {
+    toast('Lost the playback engine — returning to the library');
+  }
+});
+
 // ---------------- init ----------------
 (async function init() {
   const st = await window.player.init();
@@ -613,6 +640,10 @@ document.addEventListener('keydown', e => {
   P = st.props || {};
   SET = st.settings || {};
   $('#vol-slider').max = SET.volumeMax || 200;
+  const step = seekStep();
+  $('#btn-b10').title = `Back ${step}s (←)`;
+  $('#btn-f10').title = `Forward ${step}s (→)`;
+  for (const el of document.querySelectorAll('#btn-b10 .t, #btn-f10 .t')) el.textContent = step;
   Object.values(UPDATERS).forEach(fn => { try { fn(); } catch (_) {} });
   showUI();
 })();
