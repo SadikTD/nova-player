@@ -10,6 +10,7 @@
     "start": "electron .",
     "setup": "node scripts/setup-vendor.js",
     "icon": "node scripts/make-icon.js",
+    "banner": "node scripts/make-banner.js",
     "dist": "electron-builder --win"
   },
   "dependencies": {
