@@ -284,9 +284,13 @@ class MpvController {
       if (this.childHwnd) {
         this._fit();
         clearInterval(this._raiseTimer);
+        this._raises = 0;
+        // Checking costs a window-manager read; only a real displacement makes
+        // us touch mpv's window at all (see win32.ensureOnTop).
         this._raiseTimer = setInterval(() => {
-          if (this.proc && this.childHwnd) win32.raiseChild(this.childHwnd);
-        }, 2000);
+          if (!this.proc || !this.childHwnd) return;
+          if (win32.ensureOnTop(this.childHwnd)) this._raises++;
+        }, 3000);
       } else setTimeout(locate, 120);
     };
     locate();
@@ -494,7 +498,21 @@ class MpvController {
     } catch (_) {
       this._missedBeats = (this._missedBeats || 0) + 1;
       console.warn('[mpv] heartbeat missed', this._missedBeats);
-      if (this._missedBeats >= 2) { this._missedBeats = 0; this._onSocketLost('unresponsive'); }
+      // One missed beat plus a window that will not answer WM_NULL is already
+      // conclusive: the engine is wedged, and no amount of reconnecting to its
+      // pipe will help. Going straight to a restart turns a ~15 second dead
+      // screen into about four.
+      const probe = await win32.probeAlive(this.childHwnd, 700);
+      if (this.childHwnd && probe && !probe.alive) {
+        this._diagnose('window-hung', { probeMs: probe.ms, missed: this._missedBeats });
+        this._missedBeats = 0;
+        return this._recover('the video engine stopped responding');
+      }
+      if (this._missedBeats >= 2) {
+        this._diagnose('ipc-unresponsive', { probeMs: probe && probe.ms });
+        this._missedBeats = 0;
+        this._onSocketLost('unresponsive');
+      }
       return;
     }
 
@@ -507,8 +525,9 @@ class MpvController {
     if (this._stallPos != null && Math.abs(pos - this._stallPos) < 0.05) {
       this._goodBeats = 0;
       if (!this._stallSince) this._stallSince = Date.now();
-      else if (Date.now() - this._stallSince > 12000) {
+      else if (Date.now() - this._stallSince > 8000) {
         this._stallSince = 0;
+        this._diagnose('clock-stalled', { at: pos });
         this._recover('playback froze');
       }
     } else {
@@ -517,6 +536,30 @@ class MpvController {
       if (++this._goodBeats > 15) { this._goodBeats = 0; this._recoveries = 0; }
     }
     this._stallPos = pos;
+  }
+
+  /* A freeze should never be a mystery twice. Whenever the watchdog trips, note
+   * enough to tell the failure modes apart afterwards: a wedged window thread
+   * (nothing answers WM_NULL) is a different bug from a wedged decoder (window
+   * fine, playback clock frozen) or a dropped pipe. */
+  _diagnose(kind, extra = {}) {
+    try {
+      const p = this.props;
+      const line = JSON.stringify({
+        t: new Date().toISOString(), kind, ...extra,
+        pid: this.proc && this.proc.pid,
+        raises: this._raises || 0,
+        winCallOutstanding: win32.isStuck(),
+        pos: p['time-pos'], dur: p.duration, speed: p.speed,
+        paused: p.pause, cacheStall: p['paused-for-cache'], cache: p['demuxer-cache-time'],
+        file: this._path && path.basename(this._path),
+        err: (this._lastErr || '').slice(-400)
+      });
+      const f = path.join(app.getPath('userData'), 'nova-diagnostics.log');
+      try { if (fs.statSync(f).size > 65536) fs.renameSync(f, f + '.1'); } catch (_) {}
+      fs.appendFileSync(f, line + '\n');
+      console.warn('[mpv] ' + line);
+    } catch (_) { /* diagnostics must never break playback */ }
   }
 
   /* Restart the engine in place: same queue, same position, same overlay. The
@@ -528,6 +571,7 @@ class MpvController {
       this._sendOverlay('mpv-link', { state: 'lost' });
       return this.stopNow();
     }
+    this._diagnose('restart', { reason, attempt: this._recoveries + 1 });
     this._recoveries++;
     this._restarting = true;
     this._sendOverlay('mpv-link', { state: 'recovering', reason });

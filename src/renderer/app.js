@@ -406,6 +406,9 @@ function renderSettings() {
     <div class="setting-row"><div><div class="setting-label">Version</div>
       <div class="setting-hint" id="upd-status">Checking…</div></div>
       <button class="btn ghost" id="upd-check" style="padding:6px 14px;font-size:12px">Check now</button></div>
+    <div class="setting-row"><div><div class="setting-label">Diagnostics</div>
+      <div class="setting-hint">If playback ever freezes, Nova writes what it saw to <code>nova-diagnostics.log</code></div></div>
+      <button class="btn ghost" id="open-data" style="padding:6px 14px;font-size:12px">Show files</button></div>
     <div class="setting-hint" style="line-height:1.9;margin-top:10px">
       Nova Player — built on the mpv playback engine.<br>
       No telemetry. No ads. Updates install quietly when you close the app —
@@ -518,6 +521,7 @@ function bindView() {
       novaApplyAccent(b.dataset.accent);
       render();
     }));
+    on('#open-data', 'click', () => window.nova.openDataFolder());
     on('#upd-check', 'click', async () => { paintUpdate(await window.nova.updateCheck()); });
     window.nova.updateState().then(paintUpdate);
   }

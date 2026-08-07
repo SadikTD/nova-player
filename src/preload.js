@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('nova', {
   clearHistory: () => ipcRenderer.invoke('clear-history'),
   removeProgress: p => ipcRenderer.invoke('remove-progress', p),
   showInFolder: p => ipcRenderer.invoke('show-in-folder', p),
+  openDataFolder: () => ipcRenderer.invoke('open-data-folder'),
   winCmd: c => ipcRenderer.invoke('win-cmd', c),
   mpvKey: name => ipcRenderer.invoke('mpv-key', name),
   playerExit: () => ipcRenderer.invoke('player-exit'),

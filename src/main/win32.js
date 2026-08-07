@@ -9,6 +9,13 @@ const SetWindowPos = user32.func('__stdcall', 'SetWindowPos', 'bool',
   ['uintptr_t', 'uintptr_t', 'int', 'int', 'int', 'int', 'uint']);
 const ShowWindowFn = user32.func('__stdcall', 'ShowWindow', 'bool', ['uintptr_t', 'int']);
 const GetClassNameW = user32.func('__stdcall', 'GetClassNameW', 'int', ['uintptr_t', 'void*', 'int']);
+const GetWindowFn = user32.func('__stdcall', 'GetWindow', 'uintptr_t', ['uintptr_t', 'uint']);
+const SendMessageTimeoutW = user32.func('__stdcall', 'SendMessageTimeoutW', 'intptr_t',
+  ['uintptr_t', 'uint', 'uintptr_t', 'intptr_t', 'uint', 'uint', 'void*']);
+
+const GW_HWNDPREV = 3;
+const WM_NULL = 0x0000;
+const SMTO_ABORTIFHUNG = 0x0002;
 
 const SWP_NOACTIVATE = 0x0010;
 const SWP_SHOWWINDOW = 0x0040;
@@ -81,14 +88,56 @@ function fitChild(childHwnd, x, y, w, h) {
   flush();
 }
 
-function raiseChild(childHwnd) {
-  // never let a raise displace a pending resize — the resize already raises
-  if (queued) return;
+/*
+ * Keep the video surface above the Chromium surface — but only ever act when it
+ * has actually slipped underneath.
+ *
+ * This used to fire SetWindowPos at mpv unconditionally every two seconds. In
+ * steady state the video window is already the topmost sibling, so every one of
+ * those calls was a no-op that still delivered WM_WINDOWPOSCHANGING and
+ * WM_WINDOWPOSCHANGED into mpv's window thread — roughly 900 of them per
+ * episode. Because the video window is our child, the two processes share an
+ * input queue and that delivery is synchronous, landing on mpv's window thread
+ * while its render thread is mid-frame. Hitting that often enough eventually
+ * wins the lock-ordering lottery and wedges the engine, which is what the
+ * mid-playback freezes were.
+ *
+ * GetWindow is a read of the window manager's own bookkeeping: no message is
+ * sent, nothing can block, and the answer is authoritative. In steady state
+ * this function now makes zero calls into mpv.
+ */
+function isOnTop(childHwnd) {
+  // koffi hands back a Number for uintptr_t when the value fits, a BigInt when
+  // it does not — so test for emptiness rather than against a typed zero.
+  return !GetWindowFn(childHwnd, GW_HWNDPREV);
+}
+
+function ensureOnTop(childHwnd) {
+  if (!childHwnd || isOnTop(childHwnd)) return false;
+  if (queued) return false;              // a pending resize already raises it
   queued = {
     hwnd: childHwnd, x: 0, y: 0, w: 0, h: 0,
     flags: SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_ASYNCWINDOWPOS
   };
   flush();
+  return true;
+}
+
+/* Does the window still pump messages? A hung UI thread answers nothing, and
+ * SMTO_ABORTIFHUNG makes the answer immediate once Windows has noticed. Runs on
+ * the FFI pool so a hang cannot reach the main thread. */
+function probeAlive(childHwnd, timeoutMs = 700) {
+  return new Promise(resolve => {
+    if (!childHwnd) return resolve(false);
+    const out = Buffer.alloc(8);
+    const t0 = Date.now();
+    try {
+      SendMessageTimeoutW.async(childHwnd, WM_NULL, 0n, 0n, SMTO_ABORTIFHUNG, timeoutMs, out,
+        (err, res) => resolve({ alive: !err && res !== 0n && res !== 0, ms: Date.now() - t0 }));
+    } catch (_) {
+      resolve({ alive: false, ms: Date.now() - t0 });
+    }
+  });
 }
 
 function showChild(childHwnd, visible) {
@@ -100,5 +149,6 @@ function showChild(childHwnd, visible) {
 function isStuck() { return busy; }
 
 module.exports = {
-  hwndFromBuffer, findMpvChild, fitChild, raiseChild, showChild, classNameOf, isStuck
+  hwndFromBuffer, findMpvChild, fitChild, ensureOnTop, isOnTop, probeAlive,
+  showChild, classNameOf, isStuck
 };
