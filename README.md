@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.1.0-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1.1-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -25,8 +25,8 @@
 
 | | |
 |---|---|
-| **`Nova-Player-Setup-1.1.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
-| **`Nova-Player-1.1.0-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
+| **`Nova-Player-Setup-1.1.1.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
+| **`Nova-Player-1.1.1-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
 
 Requires 64-bit Windows 10 or 11.
 
@@ -39,7 +39,7 @@ Nova Player isn't signed with a commercial code-signing certificate, so the firs
 This is expected for any independently released app without a paid certificate. Click **More info → Run anyway** to continue. If you'd like to confirm the download arrived intact, `SHA256SUMS.txt` is attached to every release:
 
 ```powershell
-Get-FileHash .\Nova-Player-Setup-1.1.0.exe
+Get-FileHash .\Nova-Player-Setup-1.1.1.exe
 ```
 
 ---

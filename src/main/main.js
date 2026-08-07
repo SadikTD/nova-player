@@ -199,6 +199,10 @@ ipcMain.handle('remove-progress', (_e, p) => {
 
 ipcMain.handle('show-in-folder', (_e, p) => shell.showItemInFolder(p));
 
+// Opens the folder holding nova-diagnostics.log, so a freeze can be reported
+// with evidence instead of a description.
+ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
+
 ipcMain.handle('mpv-key', (_e, name) => {
   if (mpv?.isActive() && typeof name === 'string' && name.length <= 24) mpv.keypress(name);
 });

@@ -1,7 +1,7 @@
 {
   "name": "nova-player",
   "productName": "Nova Player",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A premium desktop media player inspired by MX Player — plays everything, beautifully.",
   "main": "src/main/main.js",
   "author": "Sadik Hossain",
