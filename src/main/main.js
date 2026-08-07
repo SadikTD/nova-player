@@ -9,6 +9,7 @@ const updater = require('./updater');
 let win = null;
 let mpv = null;
 let library = null;
+let closing = false;
 let pendingOpen = collectFileArgs(process.argv);
 
 // ---- single instance: a second launch (e.g. double-clicking a video) routes here
@@ -53,7 +54,21 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; });
-  win.on('close', () => { if (mpv?.isActive()) mpv.stop(); store.saveNow(); });
+
+  // Shutting down used to fire and forget: the window vanished while mpv was
+  // still being asked to quit, so a wedged engine could survive as an orphan
+  // process and the last few seconds of progress were never written.
+  win.on('close', e => {
+    store.saveNow();
+    if (closing || !mpv?.isActive()) return;
+    e.preventDefault();
+    closing = true;
+    mpv.stopNow().catch(() => {}).finally(() => {
+      store.saveNow();
+      if (win && !win.isDestroyed()) win.destroy();
+    });
+    setTimeout(() => { if (win && !win.isDestroyed()) win.destroy(); }, 3000);
+  });
 
   win.on('maximize', () => send('win-state', { maximized: true }));
   win.on('unmaximize', () => send('win-state', { maximized: false }));
@@ -77,7 +92,10 @@ async function playFiles(files, startIndex) {
 // ---------------- IPC ----------------
 ipcMain.handle('get-state', () => {
   const d = store.load();
-  return { folders: d.folders, items: d.items, playlists: d.playlists, history: d.history, settings: d.settings };
+  return {
+    folders: d.folders, items: d.items, playlists: d.playlists,
+    history: d.history, settings: d.settings, prefs: d.prefs
+  };
 });
 
 ipcMain.handle('add-folder', async () => {
@@ -118,7 +136,24 @@ ipcMain.handle('open-file-dialog', async () => {
 ipcMain.handle('save-settings', (_e, settings) => {
   const d = store.load();
   d.settings = { ...d.settings, ...settings };
+  // Changing a default in Settings should visibly change the default, not be
+  // shadowed forever by a value the player remembered earlier.
+  if ('defaultSpeed' in settings) delete d.prefs.speed;
+  if ('subScale' in settings) delete d.prefs['sub-scale'];
+  if ('subPos' in settings) delete d.prefs['sub-pos'];
+  if (settings.rememberPlayerState === false) d.prefs = {};
   store.save();
+  send('settings-changed', d.settings);
+  mpv?.sendOverlay('settings-changed', d.settings);
+});
+
+// "Reset to default" — from the player's own button or the Settings view.
+ipcMain.handle('reset-player-prefs', async () => {
+  if (mpv) return mpv.resetPrefs();
+  const d = store.load();
+  d.prefs = {};
+  store.save();
+  return null;
 });
 
 ipcMain.handle('playlist-create', (_e, name) => {
@@ -181,7 +216,37 @@ ipcMain.handle('player-get', async (_e, name) => {
 
 ipcMain.handle('player-init', () => {
   if (!mpv?.isActive()) return null;
-  return { props: mpv.props, settings: store.load().settings };
+  return {
+    props: mpv.props,
+    settings: store.load().settings,
+    alwaysOnTop: !!win?.isAlwaysOnTop()
+  };
+});
+
+/* Leaving playback must work even when the engine is wedged — that is exactly
+ * when the user most wants out. This path never waits on mpv's IPC. */
+ipcMain.handle('player-exit', async () => {
+  if (mpv) await mpv.stopNow();
+  return true;
+});
+
+ipcMain.handle('player-reset', () => (mpv ? mpv.resetPrefs() : null));
+
+// One round-trip for the media-info panel instead of a dozen.
+const STAT_PROPS = [
+  'filename', 'file-format', 'file-size', 'video-format', 'video-codec',
+  'width', 'height', 'container-fps', 'estimated-vf-fps', 'video-bitrate',
+  'hwdec-current', 'audio-codec-name', 'audio-params/channel-count',
+  'audio-params/samplerate', 'audio-bitrate', 'frame-drop-count',
+  'decoder-frame-drop-count', 'demuxer-cache-duration', 'avsync', 'path'
+];
+ipcMain.handle('player-stats', async () => {
+  if (!mpv?.isActive()) return null;
+  const out = {};
+  await Promise.all(STAT_PROPS.map(async n => {
+    try { out[n] = await mpv.getProp(n); } catch (_) { out[n] = null; }
+  }));
+  return out;
 });
 
 ipcMain.handle('player-load-sub', async () => {
@@ -194,17 +259,6 @@ ipcMain.handle('player-load-sub', async () => {
   if (r.canceled || !r.filePaths.length) return null;
   try { await mpv.exec(['sub-add', r.filePaths[0], 'select']); return r.filePaths[0]; }
   catch (err) { return { error: String(err.message || err) }; }
-});
-
-// settings changed from inside the player (e.g. subtitle position)
-ipcMain.handle('player-save-setting', (_e, patch) => {
-  if (!patch || typeof patch !== 'object') return;
-  const ALLOWED = new Set(['subPos', 'subScale', 'subBorder', 'defaultSpeed', 'volumeMax', 'seekStep']);
-  const d = store.load();
-  for (const [k, v] of Object.entries(patch)) {
-    if (ALLOWED.has(k) && typeof v === 'number' && isFinite(v)) d.settings[k] = v;
-  }
-  store.save();
 });
 
 // window dragging from the overlay's custom title bar
@@ -259,6 +313,12 @@ ipcMain.handle('win-cmd', (_e, cmd) => {
   if (cmd === 'min') win.minimize();
   else if (cmd === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
   else if (cmd === 'close') win.close();
+  else if (cmd === 'top') {
+    const on = !win.isAlwaysOnTop();
+    win.setAlwaysOnTop(on, 'screen-saver');
+    return on;
+  }
+  return null;
 });
 
 ipcMain.handle('app-info', () => ({
@@ -281,3 +341,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+
+// Last resort: never leave a stray engine process holding a video file open.
+app.on('before-quit', () => {
+  closing = true;
+  store.saveNow();
+  if (mpv?.isActive()) { try { mpv.proc.kill(); } catch (_) {} }
+});

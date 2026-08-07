@@ -56,15 +56,28 @@
     </main>
   </div>
 
-  <button id="fab" class="hidden" title="Resume last video">
-    <svg viewBox="0 0 24 24"><path d="M8 5.5 L19 12 L8 18.5 Z"/></svg>
-  </button>
+  <div id="fab-wrap" class="hidden">
+    <button id="fab-restart" title="Play from the beginning">
+      <svg viewBox="0 0 24 24"><path d="M4.5 12 A 7.5 7.5 0 1 1 7.7 18.1"/><path d="M4.5 6.5 V12 H10"/></svg>
+    </button>
+    <button id="fab">
+      <span class="fab-thumb" id="fab-thumb">
+        <svg viewBox="0 0 24 24"><path d="M8 5.5 L19 12 L8 18.5 Z"/></svg>
+      </span>
+      <span class="fab-info">
+        <span class="fab-kicker" id="fab-kicker">Resume</span>
+        <span class="fab-name" id="fab-name"></span>
+      </span>
+      <span class="fab-bar"><i id="fab-fill"></i></span>
+    </button>
+  </div>
 
   <div id="dropzone"><div class="drop-inner"><div class="drop-icon">⤓</div><div>Drop to play</div></div></div>
   <div id="ctx-menu" class="hidden"></div>
   <div id="modal-root" class="hidden"></div>
   <div id="toast-root"></div>
 
+  <script src="accents.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
