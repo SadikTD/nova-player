@@ -1,7 +1,7 @@
 /* Nova Player — renderer (library UI) */
 'use strict';
 
-let S = { folders: [], items: {}, playlists: [], history: [], settings: {} };
+let S = { folders: [], items: {}, playlists: [], history: [], settings: {}, prefs: {} };
 let currentView = 'home';
 let currentFolder = null;   // drill-down folder path (home view)
 let searchQuery = '';
@@ -79,11 +79,30 @@ function matchesSearch(it) {
   return (it.title || it.path).toLowerCase().includes(searchQuery);
 }
 
+const SORTS = {
+  name:     { label: 'Name (A–Z)',      cmp: (a, b) => (a.title || a.path).localeCompare(b.title || b.path) },
+  added:    { label: 'Recently added',  cmp: (a, b) => (b.addedAt || 0) - (a.addedAt || 0) },
+  played:   { label: 'Recently played', cmp: (a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0) },
+  longest:  { label: 'Longest first',   cmp: (a, b) => (b.duration || 0) - (a.duration || 0) },
+  largest:  { label: 'Largest first',   cmp: (a, b) => (b.size || 0) - (a.size || 0) }
+};
+function sortComparator() {
+  return (SORTS[S.settings.sortBy] || SORTS.name).cmp;
+}
+
 // ---------------- cards ----------------
+function resLabel(it) {
+  if (!it.height) return '';
+  if (it.height >= 2000) return '4K';
+  if (it.height >= 1400) return '2K';
+  if (it.height >= 1000) return 'HD 1080';
+  return it.height >= 700 ? 'HD 720' : 'SD';
+}
+
 function cardHTML(it, opts = {}) {
   const pct = it.duration && it.progress ? Math.min(100, (it.progress / it.duration) * 100) : 0;
   const t = thumbUrl(it);
-  const res = it.height ? `${it.height >= 2000 ? '4K' : it.height >= 1000 ? (it.height >= 1400 ? '2K' : 'HD 1080') : it.height >= 700 ? 'HD 720' : 'SD'}` : '';
+  const res = resLabel(it);
   return `<div class="card" data-path="${esc(it.path)}">
     <div class="thumb" ${t ? `style="background-image:url('${esc(t)}')"` : ''}>
       ${t ? '' : '<div class="ph">▶</div>'}
@@ -129,6 +148,33 @@ function folderCardHTML(g) {
   </div>`;
 }
 
+/* The one thing you are most likely to want the moment the app opens: the
+ * episode you were part-way through, with the artwork behind it. */
+function spotlightHTML(it) {
+  const t = thumbUrl(it);
+  const left = it.duration ? Math.max(0, it.duration - it.progress) : 0;
+  const pct = it.duration ? Math.min(100, (it.progress / it.duration) * 100) : 0;
+  const res = resLabel(it);
+  const bits = [
+    left ? `${fmtDur(left)} left` : '',
+    res, it.lastPlayed ? fmtAgo(it.lastPlayed) : ''
+  ].filter(Boolean);
+  return `<div class="spotlight" data-sppath="${esc(it.path)}">
+    <div class="sp-bg" ${t ? `style="background-image:url('${esc(t)}')"` : ''}></div>
+    <div class="sp-shade"></div>
+    <div class="sp-body">
+      <div class="sp-kicker">Pick up where you left off</div>
+      <div class="sp-title">${esc(it.title || baseName(it.path))}</div>
+      <div class="sp-meta">${bits.map(esc).join('<span class="dot">•</span>')}</div>
+      <div class="sp-bar"><i style="width:${pct}%"></i></div>
+      <div class="sp-actions">
+        <button class="btn accent" data-spresume>▶ Resume at ${fmtDur(it.progress)}</button>
+        <button class="btn ghost" data-sprestart>Start over</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderFolderDetail() {
   const g = folderGroups().find(x => x.dir === currentFolder);
   if (!g) { currentFolder = null; return renderHome(); }
@@ -150,10 +196,10 @@ function renderHome() {
   }
 
   const continueWatching = items
-    .filter(i => i.progress > 30 && i.duration && i.progress / i.duration < 0.97)
+    .filter(i => i.progress > 10 && i.duration && i.progress / i.duration < 0.97)
     .sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0)).slice(0, 12);
-  const recent = items.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 18);
-  const all = items.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  const recent = items.slice().sort(SORTS.added.cmp).slice(0, 18);
+  const all = items.slice().sort(sortComparator());
 
   let html = '';
   if (!S.folders.length && !all.length) {
@@ -172,8 +218,13 @@ function renderHome() {
     return html;
   }
   if (continueWatching.length) {
-    html += `<div class="section"><div class="section-head"><div class="section-title">Continue watching</div></div>
-      <div class="row-scroll">${continueWatching.map(i => cardHTML(i, { showAgo: true })).join('')}</div></div>`;
+    html += spotlightHTML(continueWatching[0]);
+    const rest = continueWatching.slice(1);
+    if (rest.length) {
+      html += `<div class="section"><div class="section-head"><div class="section-title">Continue watching</div>
+        <div class="section-sub">${rest.length} more</div></div>
+        <div class="row-scroll">${rest.map(i => cardHTML(i, { showAgo: true })).join('')}</div></div>`;
+    }
   }
   const groups = folderGroups();
   if (groups.length) {
@@ -186,7 +237,9 @@ function renderHome() {
       <div class="row-scroll">${recent.map(i => cardHTML(i)).join('')}</div></div>`;
   }
   html += `<div class="section"><div class="section-head"><div class="section-title">All videos</div>
-    <div class="section-sub">${all.length} video${all.length !== 1 ? 's' : ''}</div></div>
+    <div class="section-sub">${all.length} video${all.length !== 1 ? 's' : ''}</div>
+    <select id="sort-by" title="Sort">${Object.entries(SORTS).map(([k, v]) =>
+      `<option value="${k}" ${S.settings.sortBy === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
     ${all.length ? `<div class="grid">${all.map(i => cardHTML(i)).join('')}</div>`
       : `<div class="empty"><div class="big">🎬</div>No videos yet — scanning your folders…</div>`}</div>`;
   return html;
@@ -276,8 +329,24 @@ function renderNetwork() {
     </div>`;
 }
 
+const PREF_LABELS = {
+  'speed': v => v + '× speed',
+  'volume': v => 'volume ' + Math.round(v) + '%',
+  'mute': v => (v ? 'muted' : 'unmuted'),
+  'brightness': v => 'brightness ' + v,
+  'contrast': v => 'contrast ' + v,
+  'gamma': v => 'gamma ' + v,
+  'saturation': v => 'saturation ' + v,
+  'sub-scale': v => 'subtitle size ' + Math.round(v * 100) + '%',
+  'sub-pos': v => 'subtitle position ' + v,
+  'sub-visibility': v => (v ? 'subtitles on' : 'subtitles off')
+};
+
 function renderSettings() {
   const s = S.settings;
+  const remembered = Object.entries(S.prefs || {})
+    .filter(([k]) => PREF_LABELS[k])
+    .map(([k, v]) => PREF_LABELS[k](v));
   return `<div class="view-title">Settings</div>
   <div class="view-sub">Changes apply the next time playback starts.</div>
   <div class="settings-card"><h3>Playback</h3>
@@ -301,6 +370,22 @@ function renderSettings() {
       <select id="set-seekstep">
         ${[3, 5, 10, 15, 30].map(v => `<option value="${v}" ${(s.seekStep ?? 5) == v ? 'selected' : ''}>${v} seconds</option>`).join('')}
       </select></div>
+    <div class="setting-row"><div><div class="setting-label">Remember my player adjustments</div>
+      <div class="setting-hint">Speed, volume, mute and picture tweaks carry over to the next video and the next session</div></div>
+      <label class="switch"><input type="checkbox" id="set-remember-state" ${s.rememberPlayerState !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">“Next up” card</div>
+      <div class="setting-hint">Shows what plays next in the last 20 seconds of an episode</div></div>
+      <label class="switch"><input type="checkbox" id="set-nextup" ${s.nextUpCard !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Reset player settings</div>
+      <div class="setting-hint">${remembered.length ? 'Currently remembering: ' + esc(remembered.join(', ')) : 'Nothing customised yet — everything is at its default'}</div></div>
+      <button class="btn ghost" id="set-reset-prefs" style="padding:6px 14px;font-size:12px">Reset to default</button></div>
+  </div>
+  <div class="settings-card"><h3>Appearance</h3>
+    <div class="setting-row"><div><div class="setting-label">Accent colour</div>
+      <div class="setting-hint">Applies to the library and the player instantly</div></div>
+      <div class="swatches">${Object.entries(NOVA_ACCENTS).map(([k, c]) =>
+        `<button class="swatch ${(s.accent || 'blue') === k ? 'sel' : ''}" data-accent="${k}" title="${esc(c.name)}"
+          style="background:linear-gradient(135deg, ${c.a}, ${c.b})"></button>`).join('')}</div></div>
   </div>
   <div class="settings-card"><h3>Subtitles</h3>
     <div class="setting-row"><div><div class="setting-label">Subtitle size</div></div>
@@ -341,6 +426,18 @@ function bindView() {
   }));
   const back = views.querySelector('#folder-back');
   if (back) back.addEventListener('click', () => { currentFolder = null; render(); });
+
+  const sp = views.querySelector('.spotlight');
+  if (sp) {
+    const p = sp.dataset.sppath;
+    sp.addEventListener('click', () => playSingle(p));
+    sp.querySelector('[data-sprestart]').addEventListener('click', async e => {
+      e.stopPropagation();
+      await window.nova.removeProgress(p);
+      if (S.items[p]) S.items[p].progress = 0;
+      playSingle(p);
+    });
+  }
   views.querySelectorAll('[data-histpath]').forEach(r =>
     r.addEventListener('click', () => playSingle(r.dataset.histpath)));
 
@@ -355,6 +452,11 @@ function bindView() {
   }));
   on('#net-play', 'click', playNetUrl);
   on('#net-url', 'keydown', e => { if (e.key === 'Enter') playNetUrl(); });
+  on('#sort-by', 'change', async e => {
+    S.settings.sortBy = e.target.value;
+    await window.nova.saveSettings({ sortBy: e.target.value });
+    render();
+  });
 
   views.querySelectorAll('[data-removefolder]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation();
@@ -399,6 +501,23 @@ function bindView() {
     });
     on('#set-slang', 'change', e => save({ subLang: e.target.value.trim() }));
     on('#set-alang', 'change', e => save({ audioLang: e.target.value.trim() }));
+    on('#set-remember-state', 'change', async e => {
+      await save({ rememberPlayerState: e.target.checked });
+      if (!e.target.checked) S.prefs = {};
+      render();
+    });
+    on('#set-nextup', 'change', e => save({ nextUpCard: e.target.checked }));
+    on('#set-reset-prefs', 'click', async () => {
+      await window.nova.resetPlayerPrefs();
+      S.prefs = {};
+      toast('Player settings reset to default');
+      render();
+    });
+    views.querySelectorAll('[data-accent]').forEach(b => b.addEventListener('click', async () => {
+      await save({ accent: b.dataset.accent });
+      novaApplyAccent(b.dataset.accent);
+      render();
+    }));
     on('#upd-check', 'click', async () => { paintUpdate(await window.nova.updateCheck()); });
     window.nova.updateState().then(paintUpdate);
   }
@@ -533,6 +652,8 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  // Esc must get you out even if the engine has stopped taking keypresses
+  if (e.key === 'Escape') { e.preventDefault(); return void window.nova.playerExit(); }
   let name = KEY_MAP[e.key];
   if (!name) {
     if (e.key.length !== 1) return;             // unmapped special key
@@ -580,23 +701,42 @@ function lastPlayedItem() {
   if (!played.length) return null;
   played.sort((a, b) => b.lastPlayed - a.lastPlayed);
   // prefer the most recent unfinished one; fall back to the most recent
-  return played.find(i => i.duration && i.progress / i.duration < 0.97) || played[0];
+  return played.find(i => !i.duration || i.progress / i.duration < 0.97) || played[0];
+}
+function fabIsResume(it) {
+  return it.progress > 10 && (!it.duration || it.progress / it.duration < 0.97);
 }
 function updateFab() {
-  const fab = $('#fab');
+  const wrap = $('#fab-wrap');
   const it = lastPlayedItem();
-  if (!it || playbackActive) { fab.classList.add('hidden'); return; }
-  fab.classList.remove('hidden');
-  const at = it.duration && it.progress / it.duration < 0.97 ? ` — ${fmtDur(it.progress)}` : '';
-  fab.title = `Resume: ${it.title || it.path}${at}`;
+  if (!it || playbackActive) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  const t = thumbUrl(it);
+  $('#fab-thumb').style.backgroundImage = t ? `url("${t}")` : '';
+  const resume = fabIsResume(it);
+  const name = it.title || baseName(it.path);
+  $('#fab-kicker').textContent = resume ? `Resume · ${fmtDur(it.progress)}` : 'Play again';
+  $('#fab-name').textContent = name;
+  const pct = it.duration && it.progress ? Math.min(100, (it.progress / it.duration) * 100) : 0;
+  $('#fab-fill').style.width = pct + '%';
+  $('#fab').title = (resume ? `Resume ${name} at ${fmtDur(it.progress)}` : `Play ${name}`);
 }
 $('#fab').addEventListener('click', () => {
   const it = lastPlayedItem();
   if (it) playSingle(it.path);
 });
+$('#fab-restart').addEventListener('click', async e => {
+  e.stopPropagation();
+  const it = lastPlayedItem();
+  if (!it) return;
+  await window.nova.removeProgress(it.path);
+  if (S.items[it.path]) S.items[it.path].progress = 0;
+  playSingle(it.path);
+});
 
 async function refresh() {
   S = await window.nova.getState();
+  novaApplyAccent(S.settings.accent);
   render();
   updateFab();
 }
@@ -621,13 +761,27 @@ async function refresh() {
 window.nova.on('update-state', u => { if (currentView === 'settings') paintUpdate({ ...u, currentVersion: u.currentVersion }); });
 
 window.nova.on('library-updated', refresh);
+
+/* Thumbnail extraction reports one file at a time. Re-rendering the whole grid
+ * on each of them made a fresh scan flicker, and it wiped out whatever you were
+ * typing if you happened to be on Settings. */
+const ITEM_VIEWS = new Set(['home', 'folders', 'playlists', 'history']);
+let repaintTimer = null;
 window.nova.on('item-updated', ({ path, item }) => {
   S.items[path] = { ...(S.items[path] || {}), ...item };
-  render();
+  if (!ITEM_VIEWS.has(currentView)) return;
+  clearTimeout(repaintTimer);
+  repaintTimer = setTimeout(() => { render(); updateFab(); }, 250);
 });
 window.nova.on('progress', ({ path, progress, duration }) => {
-  const it = S.items[path];
-  if (it) { it.progress = progress; if (duration) it.duration = duration; it.lastPlayed = Date.now(); }
+  const it = S.items[path] || (S.items[path] = { title: baseName(path), addedAt: Date.now() });
+  it.progress = progress;
+  if (duration) it.duration = duration;
+  it.lastPlayed = Date.now();
+});
+window.nova.on('settings-changed', s => {
+  S.settings = { ...S.settings, ...s };
+  novaApplyAccent(S.settings.accent);
 });
 window.nova.on('playback-started', () => {
   playbackActive = true;
