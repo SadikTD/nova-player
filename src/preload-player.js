@@ -11,11 +11,16 @@ contextBridge.exposeInMainWorld('player', {
   resizeStart: edge => ipcRenderer.invoke('win-resize-start', edge),
   resizeEnd: () => ipcRenderer.invoke('win-resize-end'),
   loadSubtitle: () => ipcRenderer.invoke('player-load-sub'),
+  subsContext: () => ipcRenderer.invoke('subs-context'),
+  subsSearch: opts => ipcRenderer.invoke('subs-search', opts),
+  subsApply: id => ipcRenderer.invoke('subs-apply', id),
+  saveSettings: s => ipcRenderer.invoke('save-settings', s),
   // never routed through the engine — works even when it stops answering
   exit: () => ipcRenderer.invoke('player-exit'),
   resetPrefs: () => ipcRenderer.invoke('player-reset'),
   onProp: cb => ipcRenderer.on('mpv-prop', (_e, p) => cb(p)),
   onLink: cb => ipcRenderer.on('mpv-link', (_e, p) => cb(p)),
   onResumed: cb => ipcRenderer.on('resumed', (_e, p) => cb(p)),
-  onSettings: cb => ipcRenderer.on('settings-changed', (_e, p) => cb(p))
+  onSettings: cb => ipcRenderer.on('settings-changed', (_e, p) => cb(p)),
+  onAutoSubs: cb => ipcRenderer.on('subs-auto', (_e, p) => cb(p))
 });

@@ -525,7 +525,10 @@ POP_REFRESH.subs = () => {
   const anySel = list.some(t => t.selected);
   const visible = P['sub-visibility'] !== false;
   const html = `<div class="pop-head">Subtitles
-      <button class="mini-btn" id="sub-load">Load file…</button></div>
+      <span class="pop-head-btns">
+        <button class="mini-btn acc" id="sub-online">Find online…</button>
+        <button class="mini-btn" id="sub-load">File…</button>
+      </span></div>
     <div class="pop-item ${!anySel || !visible ? 'sel' : ''}" id="sub-off">
       <span class="check">${!anySel || !visible ? '✓' : ''}</span><span class="p-main">Off</span></div>` +
     list.map(t => `
@@ -554,6 +557,7 @@ POP_REFRESH.subs = () => {
     const r = await window.player.loadSubtitle();
     if (r && !r.error) toast('Subtitle loaded');
   });
+  $('#sub-online').addEventListener('click', () => { closePopover(); openSubsSheet(); });
   $('#sd-minus').addEventListener('click', () => cmd('add', 'sub-delay', -0.1));
   $('#sd-plus').addEventListener('click', () => cmd('add', 'sub-delay', 0.1));
   $('#sd-zero').addEventListener('click', () => setProp('sub-delay', 0));
@@ -679,6 +683,206 @@ async function openSheet(kind) {
   paintSheet('Media info', s ? statsHtml(s) : '<div class="kv"><span class="k">Unavailable</span></div>');
 }
 
+/* ---------------- online subtitle search ----------------
+ *
+ * The sheet is painted in two pieces on purpose: the search controls are
+ * rendered once, and only the results list is repainted while searching. A
+ * full repaint would take the caret out of the title box mid-keystroke. */
+const SUBS = {
+  ctx: null, langs: [], results: [], status: 'idle', error: '',
+  query: '', season: '', episode: '', applying: null, allLangs: false
+};
+
+function readSubsInputs() {
+  const q = $('#subs-q'), se = $('#subs-s'), ep = $('#subs-e');
+  if (q) SUBS.query = q.value;
+  if (se) SUBS.season = se.value;
+  if (ep) SUBS.episode = ep.value;
+}
+
+async function openSubsSheet() {
+  if (sheetKind === 'subs') return closeSheet();
+  sheetKind = 'subs';
+  paintSheet('Find subtitles online', '<div class="subs-status">Reading this video…</div>');
+  const ctx = await window.player.subsContext();
+  if (sheetKind !== 'subs') return;
+  const p = (ctx && ctx.parsed) || {};
+  SUBS.ctx = ctx || {};
+  SUBS.langs = ((ctx && ctx.langs) || ['eng']).slice();
+  SUBS.query = p.title || '';
+  SUBS.season = p.season != null ? String(p.season) : '';
+  SUBS.episode = p.episode != null ? String(p.episode) : '';
+  SUBS.results = [];
+  SUBS.error = '';
+  SUBS.allLangs = false;
+  SUBS.status = ctx && ctx.onlineSubs === false ? 'off' : 'idle';
+  paintSubsSheet();
+  if (SUBS.status !== 'off') runSubsSearch();
+}
+
+// A short list up front; the rest is one click away. Typing a language name is
+// slower than finding it, and 50 chips is a wall.
+const QUICK_LANGS = ['eng', 'ben', 'hin', 'urd', 'ara', 'spa', 'fre', 'ger', 'por', 'rus', 'jpn', 'kor'];
+
+function paintSubsSheet() {
+  const all = (SUBS.ctx && SUBS.ctx.languages) || [['eng', 'English']];
+  const shown = SUBS.allLangs ? all : all.filter(([c]) => QUICK_LANGS.includes(c) || SUBS.langs.includes(c));
+  const isEpisode = SUBS.season !== '' || SUBS.episode !== '';
+
+  const body = `
+    <div class="subs-bar">
+      <input type="text" id="subs-q" class="subs-in" placeholder="Show or film name" value="${esc(SUBS.query)}">
+      <input type="text" id="subs-s" class="subs-in num" placeholder="S" title="Season" value="${esc(SUBS.season)}">
+      <input type="text" id="subs-e" class="subs-in num" placeholder="E" title="Episode" value="${esc(SUBS.episode)}">
+      <button class="mini-btn acc" id="subs-go">Search</button>
+    </div>
+    <div class="subs-hint">${isEpisode
+      ? 'Read from the file name — correct it here if the episode is wrong.'
+      : 'Read from the file name. Add a season and episode number if this is a TV episode.'}</div>
+    <div class="subs-langs">${shown.map(([code, name]) => `
+      <button class="lchip ${SUBS.langs.includes(code) ? 'sel' : ''}" data-lang="${code}">${esc(name)}</button>`).join('')}
+      <button class="lchip more" id="subs-more">${SUBS.allLangs ? '− Fewer' : '+ More languages'}</button>
+    </div>
+    <div id="subs-results"></div>`;
+
+  paintSheet('Find subtitles online', body);
+  $('#subs-go').addEventListener('click', () => { readSubsInputs(); runSubsSearch(); });
+  for (const id of ['#subs-q', '#subs-s', '#subs-e']) {
+    $(id).addEventListener('keydown', e => {
+      // Typed characters must never reach the engine as mpv keybindings, so the
+      // event stops here — which means Esc has to be handled here too.
+      e.stopPropagation();
+      if (e.key === 'Enter') { readSubsInputs(); runSubsSearch(); }
+      else if (e.key === 'Escape') closeSheet();
+    });
+  }
+  $('#subs-more').addEventListener('click', () => { readSubsInputs(); SUBS.allLangs = !SUBS.allLangs; paintSubsSheet(); });
+  sheet.querySelectorAll('[data-lang]').forEach(el => el.addEventListener('click', () => {
+    readSubsInputs();
+    const code = el.dataset.lang;
+    const i = SUBS.langs.indexOf(code);
+    if (i >= 0) { if (SUBS.langs.length > 1) SUBS.langs.splice(i, 1); }
+    else if (SUBS.langs.length < 5) SUBS.langs.push(code);
+    else return toast('Up to five languages at a time');
+    // Remembered, so the next video searches for what you actually watch in.
+    window.player.saveSettings({ subLangs: SUBS.langs.slice() });
+    paintSubsSheet();
+    runSubsSearch();
+  }));
+  paintSubsResults();
+}
+
+function subsRowHtml(s) {
+  const badges = [];
+  if (s.hashMatch) badges.push('<span class="sb exact">✦ Perfect sync</span>');
+  else if (s.groupMatch) badges.push('<span class="sb good">Same release</span>');
+  if (s.forced || (s.size > 0 && s.size < 12000)) {
+    badges.push('<span class="sb warn" title="Only translates the odd foreign line — not a full transcript">Partial</span>');
+  }
+  if (s.hearingImpaired) badges.push('<span class="sb">SDH</span>');
+  const meta = [
+    s.langName,
+    s.downloads ? s.downloads.toLocaleString() + ' downloads' : '',
+    s.votes >= 2 ? '★ ' + s.rating.toFixed(1) : '',
+    s.size ? Math.round(s.size / 1024) + ' KB' : '',
+    (s.format || '').toUpperCase()
+  ].filter(Boolean).join(' · ');
+  return `<div class="sub-row ${SUBS.applying === s.id ? 'busy' : ''}" data-sid="${esc(s.id)}">
+    <div class="sr-main">
+      <div class="sr-name">${esc(s.name || s.release || 'Subtitle')}</div>
+      <div class="sr-meta">${esc(meta)}</div>
+    </div>
+    <div class="sr-right">${badges.join('')}
+      <button class="mini-btn acc sr-use">${SUBS.applying === s.id ? 'Downloading…' : 'Use'}</button></div>
+  </div>`;
+}
+
+function paintSubsResults() {
+  const box = $('#subs-results');
+  if (!box) return;
+  if (SUBS.status === 'off') {
+    box.innerHTML = `<div class="subs-status">Online subtitles are switched off.<br>
+      Turn them back on in the library under Settings → Subtitles.</div>`;
+    return;
+  }
+  if (SUBS.status === 'searching') {
+    box.innerHTML = `<div class="subs-status"><span class="ring small"></span>Searching OpenSubtitles…</div>`;
+    return;
+  }
+  if (SUBS.status === 'error') {
+    box.innerHTML = `<div class="subs-status err">${esc(SUBS.error)}</div>`;
+    return;
+  }
+  if (!SUBS.results.length) {
+    box.innerHTML = `<div class="subs-status">Nothing found.<br>
+      Try a shorter name, check the season and episode, or add another language.</div>`;
+    return;
+  }
+  const best = SUBS.results[0];
+  box.innerHTML =
+    `<button class="subs-best" id="subs-best">
+       <span class="sbst-k">${best.hashMatch ? '✦ Best match — timed for this exact file' : '⚡ Use the best match'}</span>
+       <span class="sbst-n">${esc(best.name || best.release || '')}</span>
+     </button>
+     <div class="subs-count">${SUBS.results.length} subtitle${SUBS.results.length === 1 ? '' : 's'} found</div>
+     <div class="subs-list">${SUBS.results.map(subsRowHtml).join('')}</div>`;
+  $('#subs-best').addEventListener('click', () => applySub(best.id));
+  box.querySelectorAll('[data-sid]').forEach(el =>
+    el.addEventListener('click', () => applySub(el.dataset.sid)));
+}
+
+let searchSeq = 0;
+async function runSubsSearch() {
+  const seq = ++searchSeq;
+  SUBS.status = 'searching';
+  SUBS.results = [];
+  paintSubsResults();
+  const num = v => (String(v).trim() === '' ? null : (isFinite(+v) ? +v : null));
+  const r = await window.player.subsSearch({
+    query: SUBS.query.trim(),
+    season: num(SUBS.season),
+    episode: num(SUBS.episode),
+    langs: SUBS.langs
+  });
+  if (seq !== searchSeq || sheetKind !== 'subs') return;
+  SUBS.results = (r && r.results) || [];
+  SUBS.error = (r && r.error) || '';
+  SUBS.status = SUBS.error && !SUBS.results.length ? 'error' : 'done';
+  paintSubsResults();
+}
+
+async function applySub(id) {
+  if (SUBS.applying) return;
+  SUBS.applying = id;
+  paintSubsResults();
+  const r = await window.player.subsApply(id);
+  SUBS.applying = null;
+  if (r && r.error) {
+    SUBS.status = 'error';
+    SUBS.error = r.error;
+    return paintSubsResults();
+  }
+  closeSheet();
+  const bits = ['Subtitles applied'];
+  if (r && r.langName) bits.push(r.langName);
+  if (r && r.exact) bits.push('perfect sync');
+  toast(bits.join(' — '));
+}
+
+/* Auto-fetch talks to the user through the same passing toast everything else
+ * uses; only a failure is worth a dismissible note with a way to act on it. */
+window.player.onAutoSubs(info => {
+  if (!info) return;
+  if (info.state === 'searching') toast('No subtitles in this file — looking online…');
+  else if (info.state === 'applied') {
+    toast(`Subtitles added — ${info.langName || info.lang}${info.exact ? ' · perfect sync' : ''}`);
+  } else if (info.state === 'none') {
+    snack('No subtitles found online for this video', 'Search myself', openSubsSheet);
+  } else if (info.state === 'error') {
+    snack('Could not fetch subtitles — ' + (info.error || 'unknown error'), 'Try again', openSubsSheet);
+  }
+});
+
 function statsHtml(s) {
   const kb = v => (typeof v === 'number' && v > 0 ? Math.round(v / 1000) + ' kbps' : '—');
   const num = (v, suffix = '', dp = 0) => (typeof v === 'number' && isFinite(v) ? v.toFixed(dp) + suffix : '—');
@@ -733,9 +937,9 @@ const KEYS_HTML = (() => {
       ['drag ⇅ left half', 'Brightness'], ['drag ⇆', 'Seek'],
       ['1…8', 'Contrast, brightness, gamma, saturation'], ['0', 'Reset picture'],
       ['a', 'Cycle aspect ratio'], ['r', 'Rotate 90°'], ['#', 'Next audio track']]],
-    ['Subtitles', [['v', 'Show or hide'], ['j', 'Next subtitle track'],
-      ['z x', 'Subtitle delay'], ['Ctrl + ↑ ↓', 'Move up / down'],
-      ['Alt + ↑ ↓', 'Larger / smaller']]],
+    ['Subtitles', [['Ctrl + f', 'Find subtitles online'], ['v', 'Show or hide'],
+      ['j', 'Next subtitle track'], ['z x', 'Subtitle delay'],
+      ['Ctrl + ↑ ↓', 'Move up / down'], ['Alt + ↑ ↓', 'Larger / smaller']]],
     ['Window', [['Esc / q', 'Back to the library'], ['t', 'Keep window on top'],
       ['s', 'Screenshot'], ['i', 'Media info'], ['?', 'This list']]]
   ];
@@ -886,6 +1090,7 @@ document.addEventListener('contextmenu', e => {
     ['📷 Screenshot', () => { cmd('screenshot'); toast('Screenshot saved to Desktop'); }],
     ['↻ Rotate 90°', () => setProp('video-rotate', ((P['video-rotate'] || 0) + 90) % 360)],
     ['🔁 A-B loop point', () => cmd('ab-loop')],
+    ['🔎 Find subtitles online', openSubsSheet],
     ['ⓘ Media info', () => openSheet('info')],
     ['⌨ Keyboard shortcuts', () => openSheet('keys')],
     ['⟲ Reset to default', resetToDefaults],
@@ -915,6 +1120,10 @@ document.addEventListener('keydown', e => {
     return exitPlayer();
   }
   if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if ((e.key === 'f' || e.key === 'F') && e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    return openSubsSheet();
+  }
   if (e.key === 'q' && !e.ctrlKey && !e.altKey) return exitPlayer();
   if ((e.key === '?' || e.key === 'F1') && !e.ctrlKey) { e.preventDefault(); return openSheet('keys'); }
   if (e.key === 'i' && !e.ctrlKey && !e.altKey) { e.preventDefault(); return openSheet('info'); }

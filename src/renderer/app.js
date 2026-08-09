@@ -180,8 +180,9 @@ function renderFolderDetail() {
   if (!g) { currentFolder = null; return renderHome(); }
   return `<div style="display:flex;align-items:center;gap:12px;margin-top:14px">
       <button class="btn ghost" id="folder-back">← Back</button>
-      <div><div class="view-title" style="margin:0">📁 ${esc(g.name)}</div>
+      <div style="flex:1"><div class="view-title" style="margin:0">📁 ${esc(g.name)}</div>
       <div class="view-sub" style="margin:2px 0 0">${esc(g.dir)} — ${g.items.length} video${g.items.length !== 1 ? 's' : ''}</div></div>
+      <button class="btn ghost" id="folder-subs" title="Find and download the best subtitle for every video in here that has none">🔎 Get subtitles for all</button>
     </div>
     <div class="section"><div class="grid">${g.items.map(i => cardHTML(i)).join('')}</div></div>`;
 }
@@ -397,10 +398,25 @@ function renderSettings() {
         <input type="range" id="set-subborder" min="0" max="5" step="0.2" value="${s.subBorder ?? 2}">
         <span id="subborder-val" style="width:42px;text-align:right">${s.subBorder ?? 2}</span></div></div>
     <div class="setting-row"><div><div class="setting-label">Preferred subtitle language</div>
-      <div class="setting-hint">e.g. en, eng — blank = automatic</div></div>
+      <div class="setting-hint">Which built-in track to pick — e.g. en, eng. Blank = automatic</div></div>
       <input type="text" class="box" id="set-slang" value="${esc(s.subLang || '')}" style="width:110px"></div>
     <div class="setting-row"><div><div class="setting-label">Preferred audio language</div></div>
       <input type="text" class="box" id="set-alang" value="${esc(s.audioLang || '')}" style="width:110px"></div>
+  </div>
+  <div class="settings-card"><h3>Online subtitles</h3>
+    <div class="setting-row"><div><div class="setting-label">Search and download subtitles</div>
+      <div class="setting-hint">Finds subtitles on OpenSubtitles — free, no account needed.
+        In the player: <kbd>Ctrl</kbd>+<kbd>F</kbd>, or the subtitles button → Find online</div></div>
+      <label class="switch"><input type="checkbox" id="set-onlinesubs" ${s.onlineSubs !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Fetch automatically</div>
+      <div class="setting-hint">When a video has no subtitles at all, quietly find the best match and turn it on.
+        Nova prefers subtitles fingerprinted against your exact file, so they line up without adjusting the delay.</div></div>
+      <label class="switch"><input type="checkbox" id="set-autosubs" ${s.autoSubs !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row" style="display:block">
+      <div class="setting-label">Languages to search</div>
+      <div class="setting-hint">In order of preference — up to five. Downloads are saved next to the video, so they load by themselves next time.</div>
+      <div class="lang-picker" id="lang-picker">Loading…</div>
+    </div>
   </div>
   <div class="settings-card"><h3>About</h3>
     <div class="setting-row"><div><div class="setting-label">Version</div>
@@ -429,6 +445,12 @@ function bindView() {
   }));
   const back = views.querySelector('#folder-back');
   if (back) back.addEventListener('click', () => { currentFolder = null; render(); });
+  const fsubs = views.querySelector('#folder-subs');
+  if (fsubs) fsubs.addEventListener('click', () => {
+    const g = folderGroups().find(x => x.dir === currentFolder);
+    if (!g) return;
+    startSubtitleFetch(g.items.map(i => i.path), `${g.items.length} video${g.items.length !== 1 ? 's' : ''} in ${g.name}`);
+  });
 
   const sp = views.querySelector('.spotlight');
   if (sp) {
@@ -521,11 +543,95 @@ function bindView() {
       novaApplyAccent(b.dataset.accent);
       render();
     }));
+    on('#set-onlinesubs', 'change', e => save({ onlineSubs: e.target.checked }));
+    on('#set-autosubs', 'change', e => save({ autoSubs: e.target.checked }));
+    paintLangPicker();
     on('#open-data', 'click', () => window.nova.openDataFolder());
     on('#upd-check', 'click', async () => { paintUpdate(await window.nova.updateCheck()); });
     window.nova.updateState().then(paintUpdate);
   }
 }
+
+/* The language list lives in the main process (it has to match what the
+ * subtitle service accepts), so the picker is filled in after the view is up
+ * rather than blocking the whole Settings render on an IPC round-trip. */
+const QUICK_LANGS = ['eng', 'ben', 'hin', 'urd', 'ara', 'spa', 'fre', 'ger', 'por', 'rus', 'ita', 'tur', 'jpn', 'kor', 'chi', 'ind'];
+let langsExpanded = false;
+
+async function paintLangPicker() {
+  const box = $('#lang-picker');
+  if (!box) return;
+  const ctx = await window.nova.subsContext();
+  if (!$('#lang-picker')) return;
+  const all = (ctx && ctx.languages) || [['eng', 'English']];
+  const chosen = (ctx && ctx.langs) || ['eng'];
+  const shown = langsExpanded ? all : all.filter(([c]) => QUICK_LANGS.includes(c) || chosen.includes(c));
+  box.innerHTML = shown.map(([code, name]) =>
+    `<button class="lang-chip ${chosen.includes(code) ? 'sel' : ''}" data-lang="${code}">${esc(name)}</button>`).join('') +
+    `<button class="lang-chip more" data-langmore>${langsExpanded ? '− Fewer' : '+ More'}</button>`;
+
+  box.querySelector('[data-langmore]').addEventListener('click', () => {
+    langsExpanded = !langsExpanded;
+    paintLangPicker();
+  });
+  box.querySelectorAll('[data-lang]').forEach(el => el.addEventListener('click', async () => {
+    const code = el.dataset.lang;
+    const next = chosen.slice();
+    const i = next.indexOf(code);
+    if (i >= 0) {
+      if (next.length === 1) return toast('Keep at least one language');
+      next.splice(i, 1);
+    } else {
+      if (next.length >= 5) return toast('Up to five languages at a time');
+      next.push(code);
+    }
+    await window.nova.saveSettings({ subLangs: next });
+    S.settings.subLangs = next;
+    paintLangPicker();
+  }));
+}
+
+/* ---------------- batch subtitle fetch ----------------
+ * Sequential in the main process, so all this has to do is show where it is up
+ * to and offer a way out. */
+let batchRunning = false;
+
+function startSubtitleFetch(paths, label) {
+  if (batchRunning) return toast('Already fetching subtitles — let that finish first');
+  if (!paths.length) return;
+  if (S.settings.onlineSubs === false) {
+    return toast('Online subtitles are switched off — turn them on in Settings', true);
+  }
+  batchRunning = true;
+  const job = $('#subs-job');
+  job.classList.remove('hidden');
+  $('#sj-sub').textContent = label;
+  $('#sj-fill').style.width = '0%';
+  window.nova.subsBatch(paths);
+}
+
+window.nova.on('subs-batch', p => {
+  const job = $('#subs-job');
+  if (p.state === 'done') {
+    batchRunning = false;
+    job.classList.add('hidden');
+    const bits = [];
+    if (p.added) bits.push(`${p.added} downloaded`);
+    if (p.skipped) bits.push(`${p.skipped} already had one`);
+    if (p.failed) bits.push(`${p.failed} not found`);
+    const msg = p.cancelled ? 'Subtitle fetch stopped' : 'Subtitles: ' + (bits.join(', ') || 'nothing to do');
+    toast(msg + (p.lastError && p.failed ? ' — ' + p.lastError : ''), !p.added && !!p.failed);
+    return;
+  }
+  job.classList.remove('hidden');
+  $('#sj-sub').textContent = `${p.done} of ${p.total} — ${p.current || ''}`;
+  $('#sj-fill').style.width = Math.round((p.done / Math.max(1, p.total)) * 100) + '%';
+});
+
+$('#sj-cancel').addEventListener('click', () => {
+  window.nova.subsBatchCancel();
+  $('#sj-sub').textContent = 'Stopping…';
+});
 
 function paintUpdate(u) {
   const el = $('#upd-status');
@@ -579,6 +685,8 @@ function showCtxMenu(e, path) {
     <div class="ctx-item" data-act="play">▶ Play</div>
     <div class="ctx-item" data-act="restart">⟲ Play from beginning</div>
     <div class="ctx-sep"></div>
+    <div class="ctx-item" data-act="subs">🔎 Download subtitles</div>
+    <div class="ctx-sep"></div>
     ${plItems}
     <div class="ctx-item" data-act="plnew">➕ Add to new playlist…</div>
     <div class="ctx-sep"></div>
@@ -593,6 +701,7 @@ function showCtxMenu(e, path) {
     if (act === 'play') playSingle(path);
     else if (act === 'restart') { await window.nova.removeProgress(path); playSingle(path); }
     else if (act === 'folder') window.nova.showInFolder(path);
+    else if (act === 'subs') startSubtitleFetch([path], baseName(path));
     else if (act === 'pladd') { await window.nova.playlistAdd(mi.dataset.pl, [path]); toast('Added to playlist'); await refresh(); }
     else if (act === 'plnew') promptModal('New playlist', 'Name your playlist', async name => {
       if (!name) return;

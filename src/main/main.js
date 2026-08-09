@@ -5,6 +5,7 @@ const store = require('./store');
 const { MpvController } = require('./mpv');
 const { Library, VIDEO_EXT } = require('./library');
 const updater = require('./updater');
+const subtitles = require('./subtitles');
 
 let win = null;
 let mpv = null;
@@ -73,7 +74,12 @@ function createWindow() {
   win.on('maximize', () => send('win-state', { maximized: true }));
   win.on('unmaximize', () => send('win-state', { maximized: false }));
 
-  mpv = new MpvController(win, store, (name, payload) => send(name, payload));
+  mpv = new MpvController(win, store, (name, payload) => {
+    // A file with no subtitle stream is the one moment auto-fetch is useful;
+    // everything else is just relayed to the renderer.
+    if (name === 'no-subtitles') return void autoFetchSubtitles(payload.path);
+    send(name, payload);
+  });
   library = new Library(store, mpv.mpvExe(), (ch, payload) => send(ch, payload));
 }
 
@@ -142,6 +148,9 @@ ipcMain.handle('save-settings', (_e, settings) => {
   if ('subScale' in settings) delete d.prefs['sub-scale'];
   if ('subPos' in settings) delete d.prefs['sub-pos'];
   if (settings.rememberPlayerState === false) d.prefs = {};
+  // Changing what to search for is the usual reason to want another go at a
+  // video auto-fetch already gave up on.
+  if ('subLangs' in settings || 'autoSubs' in settings || 'onlineSubs' in settings) autoTried.clear();
   store.save();
   send('settings-changed', d.settings);
   mpv?.sendOverlay('settings-changed', d.settings);
@@ -263,6 +272,183 @@ ipcMain.handle('player-load-sub', async () => {
   if (r.canceled || !r.filePaths.length) return null;
   try { await mpv.exec(['sub-add', r.filePaths[0], 'select']); return r.filePaths[0]; }
   catch (err) { return { error: String(err.message || err) }; }
+});
+
+// ---------------- online subtitles ----------------
+
+function samePath(a, b) {
+  if (!a || !b) return false;
+  return String(a).replace(/\//g, '\\').toLowerCase() === String(b).replace(/\//g, '\\').toLowerCase();
+}
+
+/* Search results are kept here rather than sent back and forth: the renderer
+ * only ever needs to name the one it picked, and a download link that has been
+ * round-tripped through the UI is a link the UI could have rewritten. */
+let lastResults = [];
+
+function subtitleSettings() {
+  const s = store.load().settings;
+  return {
+    onlineSubs: s.onlineSubs !== false,
+    autoSubs: s.autoSubs !== false,
+    langs: subtitles.normLangs(s.subLangs)
+  };
+}
+
+async function runSearch(file, opts = {}) {
+  const s = subtitleSettings();
+  if (!s.onlineSubs) return { results: [], error: 'Online subtitles are switched off in Settings' };
+  if (!file) return { results: [], error: 'Nothing is playing' };
+  const r = await subtitles.search(file, {
+    langs: opts.langs && opts.langs.length ? opts.langs : s.langs,
+    query: opts.query,
+    season: opts.season,
+    episode: opts.episode
+  });
+  lastResults = r.results;
+  return r;
+}
+
+/* Fetch a subtitle by itself for a video that has none.
+ *
+ * Deliberately quiet: it reports what it did through the same passing toast the
+ * rest of the player uses and never puts a dialog in the way. If nothing is
+ * found it says so once and stops — a video with no subtitles anywhere should
+ * not nag on every replay. */
+const autoTried = new Set();
+
+async function autoFetchSubtitles(file) {
+  const s = subtitleSettings();
+  if (!s.onlineSubs || !s.autoSubs) return;
+  if (!file || /^[a-z]+:\/\//i.test(file)) return;      // streams: no hash, rarely a hit
+  if (autoTried.has(file.toLowerCase())) return;
+  autoTried.add(file.toLowerCase());
+  if (subtitles.hasLocalSubtitle(file)) return;
+
+  mpv?.sendOverlay('subs-auto', { state: 'searching' });
+  try {
+    const r = await subtitles.search(file, { langs: s.langs });
+    const best = r.results[0];
+    if (!best) {
+      mpv?.sendOverlay('subs-auto', { state: 'none', error: r.error });
+      return;
+    }
+    const got = await subtitles.download(file, best);
+    // The search and the download together take a few seconds; by then the user
+    // may well have skipped to the next episode.
+    if (!mpv?.isActive() || !samePath(mpv.currentPath(), file)) return;
+    await mpv.addSubtitle(got.file, true);
+    mpv.sendOverlay('subs-auto', {
+      state: 'applied',
+      lang: best.lang,
+      langName: best.langName,
+      exact: best.hashMatch,
+      name: best.name,
+      file: got.file
+    });
+  } catch (err) {
+    mpv?.sendOverlay('subs-auto', { state: 'error', error: subtitles.friendlyNetError(err) });
+  }
+}
+
+ipcMain.handle('subs-context', () => {
+  const file = mpv?.isActive() ? mpv.currentPath() : null;
+  return {
+    path: file,
+    parsed: file ? subtitles.parseName(file) : null,
+    languages: subtitles.LANGUAGES,
+    ...subtitleSettings()
+  };
+});
+
+ipcMain.handle('subs-search', async (_e, opts = {}) => {
+  const file = mpv?.isActive() ? mpv.currentPath() : null;
+  try {
+    return await runSearch(file, opts);
+  } catch (err) {
+    return { results: [], error: subtitles.friendlyNetError(err) };
+  }
+});
+
+/* Download the chosen result and switch to it immediately. */
+ipcMain.handle('subs-apply', async (_e, id) => {
+  const file = mpv?.isActive() ? mpv.currentPath() : null;
+  if (!file) return { error: 'Nothing is playing' };
+  const sub = lastResults.find(s => s.id === String(id));
+  if (!sub) return { error: 'That subtitle is no longer in the results — search again' };
+  try {
+    const got = await subtitles.download(file, sub);
+    await mpv.addSubtitle(got.file, true);
+    return { ok: true, file: got.file, adsRemoved: got.adsRemoved, langName: sub.langName, exact: sub.hashMatch };
+  } catch (err) {
+    return { error: subtitles.friendlyNetError(err) };
+  }
+});
+
+/* Whole-folder fetch, which is the real answer to "I downloaded a series and
+ * none of it has subtitles". Strictly sequential: the free service is rate
+ * limited, and a burst of parallel requests gets the connection throttled for
+ * everyone using it. */
+let batchToken = 0;
+
+ipcMain.handle('subs-batch', async (_e, paths) => {
+  const s = subtitleSettings();
+  if (!s.onlineSubs) return { error: 'Online subtitles are switched off in Settings' };
+  const files = (Array.isArray(paths) ? paths : []).filter(p => typeof p === 'string' && p && !/^[a-z]+:\/\//i.test(p));
+  if (!files.length) return { error: 'No videos to fetch subtitles for' };
+
+  const token = ++batchToken;
+  const summary = { total: files.length, done: 0, added: 0, skipped: 0, failed: 0, cancelled: false };
+
+  for (const file of files) {
+    if (token !== batchToken) { summary.cancelled = true; break; }
+    const name = path.basename(file);
+    send('subs-batch', { ...summary, current: name, state: 'searching' });
+    try {
+      if (subtitles.hasLocalSubtitle(file)) {
+        summary.skipped++;
+      } else {
+        const r = await subtitles.search(file, { langs: s.langs });
+        const best = r.results[0];
+        if (!best) summary.failed++;
+        else { await subtitles.download(file, best); summary.added++; }
+      }
+    } catch (err) {
+      summary.failed++;
+      summary.lastError = subtitles.friendlyNetError(err);
+    }
+    summary.done++;
+    send('subs-batch', { ...summary, current: name, state: 'progress' });
+  }
+
+  send('subs-batch', { ...summary, state: 'done' });
+  return summary;
+});
+
+ipcMain.handle('subs-batch-cancel', () => { batchToken++; });
+
+/* Search on behalf of a video that is not the one playing (library view). */
+ipcMain.handle('subs-search-file', async (_e, { path: file, ...opts }) => {
+  try {
+    return await runSearch(file, opts);
+  } catch (err) {
+    return { results: [], error: subtitles.friendlyNetError(err) };
+  }
+});
+
+ipcMain.handle('subs-download-file', async (_e, { path: file, id }) => {
+  const sub = lastResults.find(s => s.id === String(id));
+  if (!sub) return { error: 'That subtitle is no longer in the results — search again' };
+  try {
+    const got = await subtitles.download(file, sub);
+    // If it happens to be what is on screen, put it up straight away.
+    if (mpv?.isActive() && samePath(mpv.currentPath(), file)) {
+      try { await mpv.addSubtitle(got.file, true); } catch (_) {}
+    }
+    return { ok: true, file: got.file, adsRemoved: got.adsRemoved, langName: sub.langName };
+  } catch (err) {
+    return { error: subtitles.friendlyNetError(err) };
+  }
 });
 
 // window dragging from the overlay's custom title bar

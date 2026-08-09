@@ -334,6 +334,82 @@ body {
 .kv { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .kv .k { color: var(--dim); }
 .kv .v { font-weight: 700; text-align: right; word-break: break-all; }
+/* ---------- online subtitle search ---------- */
+.pop-head-btns { display: flex; gap: 6px; }
+
+.subs-bar { display: flex; gap: 8px; margin-top: 14px; }
+.subs-in {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 12px; outline: none; user-select: text;
+}
+.subs-in:focus { border-color: var(--accent-line); background: rgba(255, 255, 255, 0.1); }
+.subs-in.num { flex: 0 0 58px; text-align: center; }
+.subs-bar .mini-btn { padding: 0 16px; flex-shrink: 0; }
+.subs-hint { color: var(--dim); font-size: 11.5px; margin: 8px 2px 0; }
+
+.subs-langs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.lchip {
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.lchip:hover { background: rgba(255, 255, 255, 0.14); }
+.lchip.sel { background: var(--accent-grad); border-color: transparent; }
+.lchip.more { color: var(--dim); font-weight: 600; }
+
+.subs-status {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  color: var(--dim); font-size: 13px; line-height: 1.7; text-align: center;
+  padding: 34px 10px;
+}
+.subs-status.err { color: #ff9a9a; }
+.ring.small { width: 20px; height: 20px; border-width: 2.5px; flex-shrink: 0; }
+
+/* The one-click answer, sitting above the full list for people who do not want
+   to compare fifty near-identical release names. */
+.subs-best {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  margin-top: 16px; padding: 13px 16px; cursor: pointer; font: inherit;
+  border: 1px solid var(--accent-line); border-radius: 12px;
+  background: var(--accent-soft); color: var(--text);
+  transition: background 0.14s, transform 0.14s;
+}
+.subs-best:hover { background: var(--accent-soft-2); transform: translateY(-1px); }
+.sbst-k { font-weight: 800; font-size: 13px; color: var(--accent); }
+.sbst-n {
+  font-size: 11.5px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.subs-count {
+  font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--dim); font-weight: 800; margin: 18px 2px 6px;
+}
+.subs-list { display: flex; flex-direction: column; }
+.sub-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-radius: 10px; cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.sub-row:hover { background: var(--accent-soft); }
+.sub-row.busy { opacity: 0.55; pointer-events: none; }
+.sr-main { flex: 1; min-width: 0; }
+.sr-name {
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sr-meta { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+.sr-right { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.sb {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+  border-radius: 999px; padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.1); color: var(--dim);
+}
+.sb.exact { background: var(--accent-grad); color: #fff; }
+.sb.good { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+.sb.warn { background: rgba(255, 176, 32, 0.18); color: #ffc861; }
+@media (max-width: 620px) {
+  .sr-right .sb { display: none; }
+}
+
 kbd {
   display: inline-block; min-width: 22px; text-align: center;
   background: rgba(255, 255, 255, 0.1); border: 1px solid var(--line);

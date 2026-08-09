@@ -14,6 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const { app, BrowserWindow } = require('electron');
 const win32 = require('./win32');
+const subtitles = require('./subtitles');
 
 function resPath(...p) {
   const base = app.isPackaged ? process.resourcesPath : path.join(app.getAppPath());
@@ -202,6 +203,11 @@ class MpvController {
       `--volume-max=${s.volumeMax || 200}`,
       `--sub-border-size=${s.subBorder ?? 2}`,
       s.hwdec ? '--hwdec=auto-safe' : '--hwdec=no',
+      // Downloaded subtitles are saved as "<video name>.<lang>.srt", which the
+      // default (exact) matching would ignore — fuzzy is what makes a subtitle
+      // fetched once come back by itself on every later play.
+      '--sub-auto=fuzzy',
+      `--sub-file-paths-append=${subtitles.fallbackDir()}`,
       // Nova owns resume: our store is written every few seconds and survives a
       // kill, mpv's watch-later file only exists after a clean quit. Letting
       // both restore a position means the stale one sometimes wins.
@@ -224,7 +230,13 @@ class MpvController {
     this.proc = spawn(this.mpvExe(), args, { windowsHide: false });
     this.proc.on('exit', () => this._onExit());
     this.proc.on('error', () => this._onExit());
+    // mpv reports load failures on stdout, not stderr — keep the last of both so
+    // a diagnostics entry can say why a file would not open.
     this.proc.stderr?.on('data', d => { this._lastErr = String(d).slice(0, 2000); });
+    this.proc.stdout?.on('data', d => {
+      const line = String(d).trim();
+      if (/^(Failed to open|Cannot open|Errors when loading)/m.test(line)) this._lastErr = line.slice(0, 2000);
+    });
 
     try {
       await this._connect();
@@ -634,6 +646,7 @@ class MpvController {
   _onMpvEvent(msg) {
     if (msg.event === 'file-loaded') {
       this._applyPendingResume();
+      this._scheduleSubtitleCheck();
       return;
     }
     if (msg.event !== 'property-change') return;
@@ -686,6 +699,36 @@ class MpvController {
       this._resumeNotice = { pos: r.pos };
       this._flushResumeNotice();
     } catch (_) { /* resume is best-effort */ }
+  }
+
+  /* Load a subtitle file into the running engine and switch to it. */
+  async addSubtitle(file, select = true) {
+    if (!this.sock) throw new Error('the playback engine is not running');
+    await this.command(['sub-add', file, select ? 'select' : 'auto']);
+    if (select) {
+      // A file loaded while subtitles were switched off would otherwise arrive
+      // invisibly, which reads as "the download did nothing".
+      try { await this.command(['set_property', 'sub-visibility', true]); } catch (_) {}
+    }
+  }
+
+  currentPath() { return this._path; }
+
+  /* Announce a file that carries no subtitle stream at all, so auto-fetch has
+   * something to react to. track-list is still being filled in when file-loaded
+   * fires, so the answer is only trustworthy a beat later — asking too early
+   * reports "no subtitles" for files that have half a dozen. */
+  _scheduleSubtitleCheck() {
+    clearTimeout(this._subCheckTimer);
+    this._subCheckTimer = setTimeout(async () => {
+      if (!this.proc || !this.sock) return;
+      const file = this._path;
+      if (!file) return;
+      let list = this.props['track-list'];
+      try { list = await this.getProp('track-list'); } catch (_) {}
+      if (Array.isArray(list) && list.some(t => t.type === 'sub')) return;
+      this.onEvent('no-subtitles', { path: file });
+    }, 1800);
   }
 
   _trackProgress() {
@@ -792,6 +835,8 @@ class MpvController {
     this._raiseTimer = null;
     clearInterval(this._watchdog);
     this._watchdog = null;
+    clearTimeout(this._subCheckTimer);
+    this._subCheckTimer = null;
     this._reconnecting = false;
     this._pendingResume = null;
     this._saveProgress(false);

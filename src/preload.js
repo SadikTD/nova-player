@@ -2,7 +2,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const EVENTS = [
   'library-updated', 'item-updated', 'progress', 'playback-started',
-  'playback-ended', 'play-error', 'win-state', 'update-state', 'settings-changed'
+  'playback-ended', 'play-error', 'win-state', 'update-state', 'settings-changed',
+  'subs-batch'
 ];
 
 contextBridge.exposeInMainWorld('nova', {
@@ -31,6 +32,11 @@ contextBridge.exposeInMainWorld('nova', {
   appInfo: () => ipcRenderer.invoke('app-info'),
   updateState: () => ipcRenderer.invoke('update-state'),
   updateCheck: () => ipcRenderer.invoke('update-check'),
+  subsContext: () => ipcRenderer.invoke('subs-context'),
+  subsSearchFile: opts => ipcRenderer.invoke('subs-search-file', opts),
+  subsDownloadFile: opts => ipcRenderer.invoke('subs-download-file', opts),
+  subsBatch: paths => ipcRenderer.invoke('subs-batch', paths),
+  subsBatchCancel: () => ipcRenderer.invoke('subs-batch-cancel'),
   pathForFile: f => webUtils.getPathForFile(f),
   on: (event, cb) => {
     if (!EVENTS.includes(event)) return;

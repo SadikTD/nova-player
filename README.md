@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.1.1-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.2.0-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -25,8 +25,8 @@
 
 | | |
 |---|---|
-| **`Nova-Player-Setup-1.1.1.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
-| **`Nova-Player-1.1.1-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
+| **`Nova-Player-Setup-1.2.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
+| **`Nova-Player-1.2.0-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
 
 Requires 64-bit Windows 10 or 11.
 
@@ -39,7 +39,7 @@ Nova Player isn't signed with a commercial code-signing certificate, so the firs
 This is expected for any independently released app without a paid certificate. Click **More info → Run anyway** to continue. If you'd like to confirm the download arrived intact, `SHA256SUMS.txt` is attached to every release:
 
 ```powershell
-Get-FileHash .\Nova-Player-Setup-1.1.1.exe
+Get-FileHash .\Nova-Player-Setup-1.2.0.exe
 ```
 
 ---
@@ -49,6 +49,8 @@ Get-FileHash .\Nova-Player-Setup-1.1.1.exe
 **Plays everything.** MKV, MP4, AVI, HEVC/H.265, 10-bit video, VP9, multi-track audio, embedded subtitles, network and HLS streams. Hardware-accelerated, so 4K playback barely touches your CPU.
 
 **Remembers everything.** Every video resumes exactly where you left it — including the audio track and subtitle you'd selected — and the resume point is written continuously, so it survives even a hard crash. The floating button in the corner of the library shows what you were last watching, how far in you got, and picks it up from there. Your player adjustments stick too: set 2× speed once and the next video, and the next session, starts at 2×. One button in the player puts everything back to default.
+
+**Finds subtitles for you.** Downloaded a series with no subtitles in it? Nova searches OpenSubtitles and downloads the best match — free, no account, no API key to paste in. It fingerprints the actual video file, so when a subtitle exists for your exact release it comes back timed to the frame, with no delay to nudge. Turn on **Fetch automatically** and any video that has no subtitles at all just gets them, quietly, while it starts playing. There's also **Get subtitles for all** on a folder, which walks a whole season in one go. Downloads are saved next to the video as UTF-8, with the injected advertising cues stripped out, so they load by themselves ever after.
 
 **Organises your videos.** Point it at your video folders and it builds a browsable library with generated thumbnails, folder grouping, "Continue watching", watch history, playlists, search and sorting — in whichever of six accent colours you like.
 
@@ -63,7 +65,7 @@ A full control bar that auto-hides while you watch:
 - Volume slider with boost up to 200%
 - **Speed** — presets from 0.25× to 3×, plus a fine slider
 - **Audio** — switch tracks, correct audio sync
-- **Subtitles** — pick tracks, load external `.srt`/`.ass` files, adjust sync, size and vertical position
+- **Subtitles** — pick tracks, search and download from online (<kbd>Ctrl</kbd>+<kbd>F</kbd>), load external `.srt`/`.ass` files, adjust sync, size and vertical position
 - **Video** — zoom, aspect ratio, rotate, loop
 - **Playlist** — jump to any file in the queue
 - **Sleep timer** — stop after 15/30/45/60 minutes or at the end of the video
@@ -94,6 +96,7 @@ button never route through the engine, so leaving always works.
 | <kbd>L</kbd> | A–B repeat |
 | <kbd>J</kbd> / <kbd>#</kbd> | Cycle subtitle / audio track |
 | <kbd>Z</kbd> <kbd>X</kbd> | Subtitle sync |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> | Find subtitles online |
 | <kbd>,</kbd> <kbd>.</kbd> | Frame step |
 | <kbd>F</kbd> | Fullscreen &nbsp;·&nbsp; <kbd>S</kbd> screenshot &nbsp;·&nbsp; <kbd>M</kbd> mute |
 | Click and hold | Temporary speed boost — release to go back |
@@ -133,6 +136,8 @@ npm run dist     # build the installer and portable zip into dist/
 ## Credits
 
 Playback is powered by [**mpv**](https://mpv.io), which deserves the credit for the format support and playback quality. The bundled Windows build comes from [zhongfly/mpv-winbuild](https://github.com/zhongfly/mpv-winbuild).
+
+Subtitle search uses [**OpenSubtitles.org**](https://www.opensubtitles.org), whose contributors wrote and timed every subtitle Nova downloads. A search sends exactly four things: the show or film name parsed out of the file name, the season and episode numbers, a 64-bit hash of the file (its size plus its first and last 64 KB), and the languages you picked. No account, no login, nothing is uploaded, and searches only happen when you ask for one — or, if you leave **Fetch automatically** on, when a video turns out to have no subtitles at all.
 
 Nova Player's own source is released under the [MIT licence](LICENSE). The bundled mpv binary is distributed under the GPL — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for licences and where to obtain its source.
 

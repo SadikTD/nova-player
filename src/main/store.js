@@ -25,7 +25,10 @@ const DEFAULTS = {
     subLang: '',
     accent: 'blue',         // UI accent colour
     sortBy: 'name',         // library "All videos" ordering
-    nextUpCard: true        // "Next up" card near the end of an episode
+    nextUpCard: true,       // "Next up" card near the end of an episode
+    onlineSubs: true,       // subtitle search & download from OpenSubtitles
+    autoSubs: true,         // fetch one by itself when a video has none at all
+    subLangs: ['eng']       // languages to search, in order of preference
   }
 };
 
