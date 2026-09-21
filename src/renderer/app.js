@@ -427,8 +427,8 @@ function renderSettings() {
       <button class="btn ghost" id="open-data" style="padding:6px 14px;font-size:12px">Show files</button></div>
     <div class="setting-hint" style="line-height:1.9;margin-top:10px">
       Nova Player — built on the mpv playback engine.<br>
-      No telemetry. No ads. Updates install quietly when you close the app —
-      <b>you will never get an update pop-up.</b>
+      No telemetry. No ads. Update availability appears at the top.
+      <b>Restart &amp; update when ready, or close the app to install.</b>
     </div>
   </div>`;
 }
@@ -641,9 +641,11 @@ function paintUpdate(u) {
     checking: 'Checking for updates…',
     current: 'Up to date',
     downloading: `Downloading ${u.version ? 'v' + u.version : 'update'}${u.percent ? ' — ' + u.percent + '%' : ''}…`,
-    ready: `v${u.version} ready — installs when you close the app`,
+    available: `v${u.version} available — portable copies need a new download`,
+    installing: 'Preparing the installer…',
+    ready: `v${u.version} ready — use Restart & update above, or close to install`,
     disabled: u.reason === 'development build' ? 'Development build' : 'Updates unavailable',
-    error: 'Could not check right now',
+    error: 'Update failed — retry or download the installer using the notice above',
     idle: ''
   }[u.status] || '';
   el.textContent = [v, text].filter(Boolean).join(' · ');

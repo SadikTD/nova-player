@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('nova', {
   resizeStart: edge => ipcRenderer.invoke('win-resize-start', edge),
   resizeEnd: () => ipcRenderer.invoke('win-resize-end'),
   appInfo: () => ipcRenderer.invoke('app-info'),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  updateDownloadPage: () => ipcRenderer.invoke('update-download-page'),
   updateState: () => ipcRenderer.invoke('update-state'),
   updateCheck: () => ipcRenderer.invoke('update-check'),
   subsContext: () => ipcRenderer.invoke('subs-context'),

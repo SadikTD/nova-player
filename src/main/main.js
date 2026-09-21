@@ -60,6 +60,8 @@ function createWindow() {
   // still being asked to quit, so a wedged engine could survive as an orphan
   // process and the last few seconds of progress were never written.
   win.on('close', e => {
+    if (updater.blocksQuit()) { e.preventDefault(); return; }
+    if (updater.canInstall()) { e.preventDefault(); updater.install(false); return; }
     store.saveNow();
     if (closing || !mpv?.isActive()) return;
     e.preventDefault();
@@ -85,6 +87,7 @@ function createWindow() {
 
 function send(ch, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(ch, payload);
+  if (ch === 'update-state') mpv?.sendOverlay(ch, payload);
 }
 
 async function playFiles(files, startIndex) {
@@ -517,15 +520,20 @@ ipcMain.handle('app-info', () => ({
 }));
 
 ipcMain.handle('update-state', () => updater.getState());
-ipcMain.handle('update-check', () => { updater.check(); return updater.getState(); });
+ipcMain.handle('update-check', () => updater.check());
+ipcMain.handle('update-install', () => updater.install(true));
+ipcMain.handle('update-download-page', () => shell.openExternal('https://github.com/SadikTD/nova-player/releases/latest'));
 
 // ---------------- lifecycle ----------------
 app.whenReady().then(() => {
   createWindow();
   // first scan shortly after boot so the UI appears instantly
   setTimeout(() => library.scanAll(), 600);
-  // silent background updates — never prompts, applies on exit
-  setTimeout(() => updater.init(send), 4000);
+  // Checks run in the background; status is visible in both library and player.
+  setTimeout(() => updater.init(send, async () => {
+    if (mpv?.isActive()) await mpv.stopNow();
+    store.saveNow();
+  }), 4000);
   // launched via "Open with" on a video file
   if (pendingOpen.length) setTimeout(() => playFiles(pendingOpen, 0), 400);
 });
@@ -533,7 +541,9 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 
 // Last resort: never leave a stray engine process holding a video file open.
-app.on('before-quit', () => {
+app.on('before-quit', e => {
+  if (updater.blocksQuit()) { e.preventDefault(); return; }
+  if (updater.canInstall()) { e.preventDefault(); updater.install(false); return; }
   closing = true;
   store.saveNow();
   if (mpv?.isActive()) { try { mpv.proc.kill(); } catch (_) {} }

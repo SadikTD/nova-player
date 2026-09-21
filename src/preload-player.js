@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('player', {
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  updateDownloadPage: () => ipcRenderer.invoke('update-download-page'),
+  updateState: () => ipcRenderer.invoke('update-state'),
+  updateCheck: () => ipcRenderer.invoke('update-check'),
+  onUpdate: cb => ipcRenderer.on('update-state', (_e, p) => cb(p)),
   cmd: (...c) => ipcRenderer.invoke('player-cmd', c),
   get: name => ipcRenderer.invoke('player-get', name),
   init: () => ipcRenderer.invoke('player-init'),

@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
   <title>Nova Player — controls</title>
   <link rel="stylesheet" href="player.css">
+  <link rel="stylesheet" href="updates.css">
 </head>
 <body>
   <div id="stage">
@@ -17,6 +18,7 @@
         <div id="v-title">&nbsp;</div>
         <div id="v-sub">&nbsp;</div>
       </div>
+      <div id="update-banner" class="update-banner hidden" role="status"><span class="update-message"></span><button class="update-action" hidden></button><button class="update-download" hidden>Download installer</button></div>
       <div id="sleep-badge" class="hidden" title="Sleep timer">🌙 <span id="sleep-left"></span></div>
       <button class="pbtn" id="btn-top" title="Keep window on top">
         <svg viewBox="0 0 24 24"><path d="M12 3 L12 14 M12 3 L8 7 M12 3 L16 7 M5 18 H19"/></svg>
@@ -130,5 +132,6 @@
   </div>
   <script src="accents.js"></script>
   <script src="player.js"></script>
+  <script src="updates.js"></script>
 </body>
 </html>

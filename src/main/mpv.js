@@ -170,6 +170,7 @@ class MpvController {
     startIndex = Math.max(0, Math.min(startIndex, files.length - 1));
     this._files = files.slice();
     this._queueIndex = startIndex;
+    this._saveProgress(false);
 
     const resume = this._storedResume(files[startIndex]);
     this._pendingResume = resume;
@@ -220,16 +221,17 @@ class MpvController {
     }
     if (s.audioLang) args.push(`--alang=${s.audioLang}`);
     if (s.subLang) args.push(`--slang=${s.subLang}`);
-    // Start at the stored position from frame one. Seeking after the fact races
-    // with mpv's own startup and used to be missed entirely on the first video
-    // of a session, which is why resume "only worked sometimes".
-    if (resume) args.push(`--start=${resume.pos.toFixed(3)}`);
+    // Resume is a file-scoped seek, never a persistent --start option.
     args.push('--', files[startIndex]);
 
     this.props = {};
+    this._loadingFile = false;
+    this._progressSnapshot = null;
+    this._fileEpoch = (this._fileEpoch || 0) + 1;
     this.proc = spawn(this.mpvExe(), args, { windowsHide: false });
-    this.proc.on('exit', () => this._onExit());
-    this.proc.on('error', () => this._onExit());
+    const launched = this.proc;
+    launched.on('exit', () => { if (this.proc === launched) this._onExit(); });
+    launched.on('error', () => { if (this.proc === launched) this._onExit(); });
     // mpv reports load failures on stdout, not stderr — keep the last of both so
     // a diagnostics entry can say why a file would not open.
     this.proc.stderr?.on('data', d => { this._lastErr = String(d).slice(0, 2000); });
@@ -245,6 +247,8 @@ class MpvController {
       await this._hardStop();
       throw err;
     }
+    await this._applyPendingResume();
+    await this._captureProgress();
     this._startWatchdog();
     await this._appendRest(files, startIndex);
 
@@ -255,22 +259,7 @@ class MpvController {
     // a restart reuses the existing overlay, so ready-to-show will not fire again
     if (hadOverlay) this._flushResumeNotice();
     this.onEvent('playback-started', { path: files[startIndex] });
-    this._verifyResume(resume);
-  }
 
-  /* Belt and braces: if --start was ignored for any reason, land on the stored
-   * position anyway once the file is actually rolling. */
-  _verifyResume(resume) {
-    if (!resume) return;
-    setTimeout(async () => {
-      if (!this.proc || !this.sock) return;
-      try {
-        const at = await this.command(['get_property', 'time-pos']);
-        if (typeof at === 'number' && at < Math.min(5, resume.pos - 5)) {
-          await this.command(['seek', resume.pos, 'absolute+exact']);
-        }
-      } catch (_) {}
-    }, 1800);
   }
 
   /* The playing entry loads first (instant start), the rest append in order,
@@ -376,7 +365,10 @@ class MpvController {
     if (!this._resumeNotice) return;
     const n = this._resumeNotice;
     this._resumeNotice = null;
-    setTimeout(() => this._sendOverlay('resumed', n), 500);
+    const epoch = this._fileEpoch || 0;
+    setTimeout(() => {
+      if (epoch === (this._fileEpoch || 0)) this._sendOverlay('resumed', n);
+    }, 500);
   }
 
   _syncOverlayBounds() {
@@ -419,12 +411,15 @@ class MpvController {
     this.buf = '';
     this._lastEventAt = Date.now();
     sock.setEncoding('utf8');
-    sock.on('data', d => { this._lastEventAt = Date.now(); this._onData(d); });
+    sock.on('data', d => {
+      if (this.sock !== sock) return;
+      this._lastEventAt = Date.now(); this._onData(d);
+    });
     // A dropped control channel used to be swallowed here, leaving the app alive
     // but unable to control or observe playback — every button a silent no-op.
-    sock.on('error', err => this._onSocketLost('error: ' + (err && err.message)));
-    sock.on('close', () => this._onSocketLost('closed'));
-    sock.on('end', () => this._onSocketLost('ended'));
+    sock.on('error', err => { if (this.sock === sock) this._onSocketLost('error: ' + (err && err.message)); });
+    sock.on('close', () => { if (this.sock === sock) this._onSocketLost('closed'); });
+    sock.on('end', () => { if (this.sock === sock) this._onSocketLost('ended'); });
   }
 
   _onSocketLost(why) {
@@ -644,12 +639,23 @@ class MpvController {
   }
 
   _onMpvEvent(msg) {
+    if (msg.event === 'start-file' || msg.event === 'end-file') {
+      this._saveProgress(msg.event === 'end-file' && msg.reason === 'eof');
+      this._fileEpoch = (this._fileEpoch || 0) + 1;
+      this._progressSnapshot = null;
+      this._loadingFile = true;
+      this._timePos = null;
+      this._duration = null;
+      this._lastSave = 0;
+      return;
+    }
     if (msg.event === 'file-loaded') {
+      this._loadingFile = false;
       // Timing corrections belong to this video, never the next queue item.
       for (const [name, value] of Object.entries({ 'sub-delay': 0, 'sub-speed': 1, 'audio-delay': 0 })) {
         this.command(['set_property', name, value]).catch(() => {});
       }
-      this._applyPendingResume();
+      this._applyPendingResume().then(() => this._captureProgress()).catch(() => {});
       this._scheduleSubtitleCheck();
       return;
     }
@@ -678,31 +684,41 @@ class MpvController {
     } else if (name === 'fullscreen' && typeof data === 'boolean') {
       if (!this.win.isDestroyed() && this.win.isFullScreen() !== data) this.win.setFullScreen(data);
     } else if (name === 'eof-reached' && data === true) {
-      this._saveProgress(true);
+      this._captureProgress(true).catch(() => {});
     }
 
     this._sendOverlay('mpv-prop', { name, data });
   }
 
-  /* Seek to our stored position once the file is actually open. Used when a new
-   * file is loaded into a running engine (the first file of a session is placed
-   * with --start instead). */
+  /* Consume a resume request once, and reject it if the queue changes while
+   * IPC replies are in flight. Playlist Next has no request and starts at zero. */
   async _applyPendingResume() {
+    if (this._resumeApplying) return this._resumeApplying;
     const r = this._pendingResume;
-    this._pendingResume = null;
-    if (!r) return;
-    // file-loaded arrives before the `path` property change, so this.path is
-    // still the *previous* file here — ask the engine directly.
-    let target = this._path;
-    if (!samePath(r.file, target)) target = await this.getProp('path').catch(() => null);
-    if (!samePath(r.file, target)) return;
-    try {
-      const at = await this.command(['get_property', 'time-pos']);
-      if (typeof at === 'number' && Math.abs(at - r.pos) < 5) return;  // already there
-      await this.command(['seek', r.pos, 'absolute+exact']);
-      this._resumeNotice = { pos: r.pos };
-      this._flushResumeNotice();
-    } catch (_) { /* resume is best-effort */ }
+    if (!r || this._loadingFile) return;
+    const epoch = this._fileEpoch || 0;
+    this._resumeApplying = (async () => {
+      try {
+        const [target, at] = await Promise.all([this.getProp('path'), this.getProp('time-pos')]);
+        if (epoch !== (this._fileEpoch || 0)) return;
+        if (!samePath(r.file, target)) {
+          if (this._pendingResume === r) this._pendingResume = null;
+          return;
+        }
+        if (!Number.isFinite(at)) return;
+        this._pendingResume = null;
+        await this.command(['seek', r.pos, 'absolute+exact']);
+        if (epoch !== (this._fileEpoch || 0)) return;
+        this._resumeNotice = { pos: r.pos, file: r.file };
+        this._flushResumeNotice();
+      } catch (_) { /* leave an unloaded file's request for file-loaded */ }
+    })();
+    try { await this._resumeApplying; }
+    finally { this._resumeApplying = null; }
+    // file-loaded may have arrived while the initial readiness check was in flight.
+    if (this._pendingResume === r && epoch !== (this._fileEpoch || 0) && !this._loadingFile) {
+      await this._applyPendingResume();
+    }
   }
 
   /* Load a subtitle file into the running engine and switch to it. */
@@ -739,23 +755,41 @@ class MpvController {
     const now = Date.now();
     if (this._lastSave && now - this._lastSave < 3000) return;
     this._lastSave = now;
-    this._saveProgress(false);
+    this._captureProgress().catch(() => {});
+  }
+
+  // Read a coherent snapshot from the engine instead of combining independently
+  // arriving filename/time/duration notifications from different episodes.
+  async _captureProgress(finished = false) {
+    if (!this.sock || this._loadingFile || this._resumeApplying) return;
+    const epoch = this._fileEpoch || 0;
+    try {
+      const [file, pos, duration] = await Promise.all(
+        ['path', 'time-pos', 'duration'].map(name => this.command(['get_property', name], 700))
+      );
+      if (epoch !== (this._fileEpoch || 0) || this._loadingFile || !file ||
+          !Number.isFinite(pos) || pos < 0 || !Number.isFinite(duration) || duration <= 0) return;
+      this._progressSnapshot = { file, pos, duration };
+      this._saveProgress(finished);
+    } catch (_) { /* keep the last coherent snapshot if the engine is closing */ }
   }
 
   _saveProgress(finished) {
-    if (!this._path) return;
-    const pos = finished ? (this._duration || 0) : (this._timePos || 0);
+    const snapshot = this._progressSnapshot;
+    if (!snapshot) return;
+    const { file, duration } = snapshot;
+    const pos = finished ? duration : Math.min(snapshot.pos, duration);
     const data = this.store.load();
-    const it = data.items[this._path];
-    // Never let a just-loaded file sitting at 0 wipe out an existing resume point.
-    if (!finished && pos < 1 && it && it.progress > 1) return;
-    const entry = it || (data.items[this._path] = { addedAt: Date.now() });
-    if (!entry.title) entry.title = path.basename(this._path, path.extname(this._path));
+    const it = data.items[file];
+    // A resume request is still being applied; do not erase it at frame zero.
+    if (!finished && pos < 1 && samePath(this._pendingResume?.file, file)) return;
+    const entry = it || (data.items[file] = { addedAt: Date.now() });
+    if (!entry.title) entry.title = path.basename(file, path.extname(file));
     entry.lastPlayed = Date.now();
-    if (this._duration) entry.duration = this._duration;
+    entry.duration = duration;
     entry.progress = pos;
     this.store.save();
-    this.onEvent('progress', { path: this._path, progress: entry.progress, duration: entry.duration });
+    this.onEvent('progress', { path: file, progress: pos, duration });
   }
 
   _markHistory(p) {
@@ -804,6 +838,7 @@ class MpvController {
   async stop() {
     if (!this.proc) return;
     this._stopping = true;
+    await this._captureProgress();
     this._saveProgress(false);
     await this._hardStop();
   }
@@ -813,6 +848,7 @@ class MpvController {
   async stopNow() {
     if (!this.proc) return;
     this._stopping = true;
+    await this._captureProgress();
     this._saveProgress(false);
     await this._hardStop();
   }
@@ -869,6 +905,8 @@ class MpvController {
     if (!this.win.isDestroyed() && this.win.isFullScreen()) this.win.setFullScreen(false);
     this.onEvent('playback-ended', { path: this._path });
     this._path = null; this._timePos = null; this._duration = null;
+    this._progressSnapshot = null;
+    this._fileEpoch = (this._fileEpoch || 0) + 1;
     this._files = [];
   }
 }

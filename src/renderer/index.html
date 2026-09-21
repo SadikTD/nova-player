@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'">
   <title>Nova Player</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="updates.css">
 </head>
 <body>
   <div id="titlebar">
@@ -52,6 +53,7 @@
         <button class="btn ghost" id="btn-open-file">Open file</button>
         <button class="btn accent" id="btn-add-folder">+ Add folder</button>
       </header>
+      <div id="update-banner" class="update-banner hidden" role="status"><span class="update-message"></span><button class="update-action" hidden></button><button class="update-download" hidden>Download installer</button></div>
       <div id="views"></div>
     </main>
   </div>
@@ -89,5 +91,6 @@
 
   <script src="accents.js"></script>
   <script src="app.js"></script>
+  <script src="updates.js"></script>
 </body>
 </html>

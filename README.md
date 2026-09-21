@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.3.0-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.1-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -18,6 +18,15 @@
 </p>
 
 ---
+
+## What's new in 1.3.1
+
+- **Next episode starts at the beginning.** Resume positions are scoped to the selected video, and progress events cannot copy the previous episode's time into the next episode. Opening a video directly still resumes its own saved position.
+- **Start over stays reset.** Returning to the beginning now clears that video's old progress.
+- **Visible updates.** A notice at the top of the library and player shows the available version, download progress, and **Restart & update**. Closing an installed app also installs a ready update after playback has stopped and progress is saved.
+- **Recoverable installation.** Updates target the running installation. Failed attempts are reported on the next launch, with retry/download actions and diagnostics in `nova-updates.log`. Portable copies offer a download instead of claiming an in-place installation.
+
+If an older version keeps reopening unchanged, download and run the **1.3.1 Setup EXE** from Releases once to get these updater fixes. Your library and settings are retained.
 
 ## What's new in 1.3.0
 
@@ -62,7 +71,7 @@ Get-FileHash .\Nova-Player-Setup-1.2.0.exe
 
 **Organises your videos.** Point it at your video folders and it builds a browsable library with generated thumbnails, folder grouping, "Continue watching", watch history, playlists, search and sorting — in whichever of six accent colours you like.
 
-**Stays out of the way.** No ads. No telemetry. No accounts. Updates download quietly in the background and apply when you close the app — **you will never see an update pop-up.**
+**Stays out of the way.** No ads. No telemetry. No accounts. Updates download in the background with a passive notice at the top. Choose **Restart & update**, or close the installed app to apply a ready update.
 
 ### In the player
 
