@@ -219,7 +219,7 @@ window.player.onProp(({ name, data }) => {
   const fn = UPDATERS[name];
   if (fn) fn();
   // live-refresh an open popover, but never while the user is interacting with it
-  if (popoverKind && !popPointerDown && POP_REFRESH[popoverKind] &&
+  if (popoverKind && !popPointerDown && !(pop.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) && POP_REFRESH[popoverKind] &&
       POP_REFRESH_PROPS[popoverKind]?.includes(name)) {
     POP_REFRESH[popoverKind]();
   }
@@ -455,8 +455,8 @@ function togglePopover(kind) {
   POP_REFRESH[kind]();
 }
 const POP_REFRESH_PROPS = {
-  audio: ['track-list'],
-  subs: ['track-list', 'sub-delay', 'sub-visibility', 'sub-scale', 'sub-pos'],
+  audio: ['track-list', 'audio-delay'],
+  subs: ['track-list', 'sub-delay', 'sub-speed', 'sub-visibility', 'sub-scale', 'sub-pos'],
   speed: ['speed'],
   settings: ['video-zoom', 'video-rotate', 'loop-file', 'video-aspect-override'],
   playlist: ['playlist-pos']
@@ -465,6 +465,7 @@ const POP_REFRESH_PROPS = {
 function closePopover() { popoverKind = null; pop.classList.add('hidden'); }
 function openPopoverKeep(kind, html) {
   popoverKind = kind;
+  pop.dataset.kind = kind;
   pop.innerHTML = html;
   pop.classList.remove('hidden');
 }
@@ -494,6 +495,46 @@ function trackSide(t) {
   return bits.join(' ');
 }
 
+// Shared timing controls keep their DOM stable while the user types or drags.
+function timingCard(prop, title) {
+  const value = Number(P[prop]) || 0;
+  return `<section class="sync-card" data-timing="${prop}">
+    <div class="sync-heading"><span>${title}</span><button class="mini-btn sync-reset">Reset</button></div>
+    <div class="sync-value"><input class="sync-number" type="number" min="-600" max="600" step="0.1" value="${value.toFixed(1)}" aria-label="${title} in seconds"><span>seconds</span></div>
+    <p class="sync-status" aria-live="polite"></p>
+    <input class="sync-slider" type="range" min="${Math.min(-10,value)}" max="${Math.max(10,value)}" step="0.1" value="${value}" aria-label="${title}">
+    <div class="sync-directions"><span>← Earlier</span><span>Later →</span></div>
+    <div class="sync-steps">${[-5,-1,-0.1,0.1,1,5].map(n => `<button class="mini-btn" data-nudge="${n}">${n > 0 ? '+' : '−'}${Math.abs(n)}s</button>`).join('')}</div>
+    <p class="sync-help">${prop === 'sub-delay' ? 'Subtitles late? Move earlier. Too early? Move later.' : 'Sound late? Move earlier. Too early? Move later.'} Type any offset up to ±600 seconds.</p>
+  </section>`;
+}
+function bindTiming(prop) {
+  const card = pop.querySelector('[data-timing]');
+  const number = card.querySelector('.sync-number');
+  const slider = card.querySelector('.sync-slider');
+  let current = Number(P[prop]) || 0;
+  const paint = () => {
+    number.value = current.toFixed(1);
+    slider.min = Math.min(-10, current); slider.max = Math.max(10, current);
+    slider.value = current;
+    card.querySelector('.sync-status').textContent = current === 0 ? 'Original timing' : Math.abs(current).toFixed(1) + ' seconds ' + (current < 0 ? 'earlier' : 'later');
+  };
+  const apply = value => {
+    if (!Number.isFinite(value) || Math.abs(value) > 600) {
+      toast('Enter an offset between −600 and +600 seconds'); paint(); return;
+    }
+    current = Math.round(value * 10) / 10;
+    paint();
+    setProp(prop, current);
+  };
+  paint();
+  number.addEventListener('change', () => apply(number.value === '' ? NaN : +number.value));
+  number.addEventListener('keydown', e => { if (e.key === 'Enter') { apply(number.value === '' ? NaN : +number.value); e.preventDefault(); } });
+  slider.addEventListener('input', () => apply(+slider.value));
+  card.querySelectorAll('[data-nudge]').forEach(button => button.addEventListener('click', () => apply(current + +button.dataset.nudge)));
+  card.querySelector('.sync-reset').addEventListener('click', () => apply(0));
+}
+
 // --- audio ---
 $('#btn-audio').addEventListener('click', () => togglePopover('audio'));
 POP_REFRESH.audio = () => {
@@ -505,17 +546,11 @@ POP_REFRESH.audio = () => {
         <span class="p-main">${esc(trackLabel(t))}</span>
         <span class="p-side">${esc(trackSide(t))}</span>
       </div>`).join('') : '<div class="pop-row"><label>No audio tracks</label></div>') +
-    `<div class="pop-sep"></div>
-     <div class="pop-row"><label>Audio sync</label>
-       <div><button class="mini-btn" id="ad-minus">−0.1s</button>
-       <button class="mini-btn" id="ad-plus">+0.1s</button>
-       <button class="mini-btn acc" id="ad-zero">Reset</button></div></div>`;
+    timingCard('audio-delay', 'Audio timing');
   openPopoverKeep('audio', html);
   pop.querySelectorAll('[data-aid]').forEach(el =>
     el.addEventListener('click', () => { setProp('aid', +el.dataset.aid); }));
-  $('#ad-minus').addEventListener('click', () => cmd('add', 'audio-delay', -0.1));
-  $('#ad-plus').addEventListener('click', () => cmd('add', 'audio-delay', 0.1));
-  $('#ad-zero').addEventListener('click', () => setProp('audio-delay', 0));
+  bindTiming('audio-delay');
 };
 
 // --- subtitles ---
@@ -537,11 +572,15 @@ POP_REFRESH.subs = () => {
         <span class="p-main">${esc(trackLabel(t))}</span>
         <span class="p-side">${esc(t.codec || '')}</span>
       </div>`).join('') +
-    `<div class="pop-sep"></div>
-     <div class="pop-row"><label>Sync ${(P['sub-delay'] ?? 0).toFixed(1)}s</label>
-       <div><button class="mini-btn" id="sd-minus">−0.1s</button>
-       <button class="mini-btn" id="sd-plus">+0.1s</button>
-       <button class="mini-btn acc" id="sd-zero">0</button></div></div>
+    timingCard('sub-delay', 'Subtitle timing') +
+    `<div class="sync-card drift-card">
+       <div class="sync-heading"><span>Subtitle speed</span><button class="mini-btn" id="rate-reset">Reset</button></div>
+       <p class="sync-help">Starts in sync, then drifts? Adjust the subtitle speed only.</p>
+       <div class="rate-row"><button class="mini-btn" id="rate-slower">Slower</button>
+       <label><input id="sub-rate" type="number" min="50" max="200" step="0.1" value="${(100 / (P['sub-speed'] || 1)).toFixed(1)}" aria-label="Subtitle speed percent"> %</label>
+       <button class="mini-btn" id="rate-faster">Faster</button></div>
+       <p class="sync-help">100% is normal · 50–200% · Text subtitles only</p>
+     </div>
      <div class="pop-row"><label>Size ${Math.round((P['sub-scale'] || 1) * 100)}%</label>
        <div><button class="mini-btn" id="ss-minus">A−</button>
        <button class="mini-btn" id="ss-plus">A+</button></div></div>
@@ -558,9 +597,20 @@ POP_REFRESH.subs = () => {
     if (r && !r.error) toast('Subtitle loaded');
   });
   $('#sub-online').addEventListener('click', () => { closePopover(); openSubsSheet(); });
-  $('#sd-minus').addEventListener('click', () => cmd('add', 'sub-delay', -0.1));
-  $('#sd-plus').addEventListener('click', () => cmd('add', 'sub-delay', 0.1));
-  $('#sd-zero').addEventListener('click', () => setProp('sub-delay', 0));
+  bindTiming('sub-delay');
+  const rate = $('#sub-rate');
+  const applyRate = value => {
+    if (!Number.isFinite(value) || value < 50 || value > 200) {
+      toast('Enter a subtitle speed from 50% to 200%');
+      return;
+    }
+    rate.value = value.toFixed(1);
+    setProp('sub-speed', 100 / value);
+  };
+  rate.addEventListener('change', () => applyRate(rate.value === '' ? NaN : +rate.value));
+  $('#rate-slower').addEventListener('click', () => applyRate(Math.max(50, +rate.value - 0.5)));
+  $('#rate-faster').addEventListener('click', () => applyRate(Math.min(200, +rate.value + 0.5)));
+  $('#rate-reset').addEventListener('click', () => applyRate(100));
   $('#ss-minus').addEventListener('click', () => cmd('add', 'sub-scale', -0.05));
   $('#ss-plus').addEventListener('click', () => cmd('add', 'sub-scale', 0.05));
   // position: lower sub-pos value = higher on screen; remembered across sessions
@@ -938,7 +988,7 @@ const KEYS_HTML = (() => {
       ['1…8', 'Contrast, brightness, gamma, saturation'], ['0', 'Reset picture'],
       ['a', 'Cycle aspect ratio'], ['r', 'Rotate 90°'], ['#', 'Next audio track']]],
     ['Subtitles', [['Ctrl + f', 'Find subtitles online'], ['v', 'Show or hide'],
-      ['j', 'Next subtitle track'], ['z x', 'Subtitle delay'],
+      ['j', 'Next subtitle track'], ['z x', 'Subtitle timing ±0.1s'], ['Shift + Z X', 'Subtitle timing ±1s'],
       ['Ctrl + ↑ ↓', 'Move up / down'], ['Alt + ↑ ↓', 'Larger / smaller']]],
     ['Window', [['Esc / q', 'Back to the library'], ['t', 'Keep window on top'],
       ['s', 'Screenshot'], ['i', 'Media info'], ['?', 'This list']]]
@@ -1120,6 +1170,11 @@ document.addEventListener('keydown', e => {
     return exitPlayer();
   }
   if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.target.closest('button, [role=button]') && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.shiftKey && !e.ctrlKey && !e.altKey && /^(z|x)$/i.test(e.key)) {
+    e.preventDefault();
+    return cmd('add', 'sub-delay', e.key.toLowerCase() === 'x' ? 1 : -1);
+  }
   if ((e.key === 'f' || e.key === 'F') && e.ctrlKey && !e.altKey) {
     e.preventDefault();
     return openSubsSheet();

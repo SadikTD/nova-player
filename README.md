@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.2.0-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.0-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -18,6 +18,14 @@
 </p>
 
 ---
+
+## What's new in 1.3.0
+
+Subtitle timing now has direct entry (up to ±600 seconds), a slider, and ±0.1 / ±1 / ±5 second buttons. For a four-second correction, enter 4 to show subtitles later or -4 to show them earlier. Audio has the same timing controls and a visible offset.
+
+Use **Subtitle speed** for gradual drift: above 100% makes text subtitles run faster, below 100% slower. Video and audio playback speed stays unchanged. Reset either adjustment independently. Timing corrections reset when another video loads; subtitle appearance preferences remain remembered.
+
+Keyboard: **Z / X** adjusts subtitles by 0.1 seconds; **Shift + Z / X** adjusts by 1 second.
 
 ## Download
 

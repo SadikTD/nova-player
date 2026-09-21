@@ -31,7 +31,7 @@ function samePath(a, b) {
 const OBSERVED = [
   'time-pos', 'duration', 'pause', 'path', 'media-title', 'fullscreen',
   'eof-reached', 'speed', 'volume', 'mute', 'playlist-pos', 'playlist-count',
-  'track-list', 'chapter-list', 'chapter', 'paused-for-cache', 'sub-delay',
+  'track-list', 'chapter-list', 'chapter', 'paused-for-cache', 'sub-delay', 'sub-speed', 'audio-delay',
   'sub-visibility', 'sub-pos', 'brightness', 'contrast', 'gamma', 'saturation',
   'video-zoom', 'ab-loop-a', 'ab-loop-b', 'loop-file', 'video-rotate',
   'video-aspect-override', 'sub-scale', 'demuxer-cache-time'
@@ -65,7 +65,7 @@ const STICKY = {
 // are never persisted.
 const TRANSIENT_RESET = {
   'video-zoom': 0, 'video-rotate': 0, 'video-aspect-override': '-1',
-  'audio-delay': 0, 'sub-delay': 0, 'loop-file': 'no'
+  'audio-delay': 0, 'sub-delay': 0, 'sub-speed': 1, 'loop-file': 'no'
 };
 
 class MpvController {
@@ -645,6 +645,10 @@ class MpvController {
 
   _onMpvEvent(msg) {
     if (msg.event === 'file-loaded') {
+      // Timing corrections belong to this video, never the next queue item.
+      for (const [name, value] of Object.entries({ 'sub-delay': 0, 'sub-speed': 1, 'audio-delay': 0 })) {
+        this.command(['set_property', name, value]).catch(() => {});
+      }
       this._applyPendingResume();
       this._scheduleSubtitleCheck();
       return;
