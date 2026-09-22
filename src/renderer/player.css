@@ -447,3 +447,22 @@ kbd {
 .rate-row input { width: 80px; text-align: center; font-size: 16px; }
 .drift-card { background: rgba(255,255,255,.025); border-color: var(--line); }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Automatic subtitle alignment */
+.sync-local { font-size: 9px; letter-spacing: 1.3px; font-weight: 750; color: var(--accent); }
+.sync-actions { display: flex; gap: 8px; margin-top: 12px; }
+.as-intro h3 { font-size: 23px; letter-spacing: -.6px; margin: 8px 0; }
+.as-intro p, .as-status p, .as-note { color: var(--dim); font-size: 12px; line-height: 1.7; }
+.as-status { border: 1px solid var(--accent-line); border-radius: 12px; padding: 16px; margin: 20px 0 16px; background: var(--accent-soft); }
+.as-status strong { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.as-status p { margin-top: 6px; }
+.as-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+.as-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.as-stats div { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.as-stats b { display: block; font-size: 18px; margin-bottom: 5px; }
+.as-stats span { color: var(--dim); font-size: 10px; }
+.as-option { display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.as-option select { background: #161d29; color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 8px; max-width: 60%; }
+.as-option input { accent-color: var(--accent); width: 17px; height: 17px; }
+.as-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 12px; }
+.as-buttons button { padding: 9px 13px; }
+#sync-badge { margin-right: 10px; max-width: 145px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--accent); background: rgba(16,20,30,.94); }

@@ -60,3 +60,7 @@ Used to call Windows APIs for managing the embedded video surface.
 
 - **Source:** https://github.com/Koromix/koffi
 - **Licence:** MIT
+
+## Automatic subtitle synchronization
+
+Nova bundles **alass 2.0.0** (GPL-3.0-or-later) and an **FFmpeg 8.1.3 LGPL shared build** as separate processes. All analysis runs locally. Licenses are shipped in `resources/sync/`, with exact sources and build provenance in `resources/sync/SOURCES.md`. See [sync-tools-sources.md](docs/sync-tools-sources.md) and the pinned downloads/checksums in `scripts/setup-sync.js`.

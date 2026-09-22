@@ -403,6 +403,15 @@ function renderSettings() {
     <div class="setting-row"><div><div class="setting-label">Preferred audio language</div></div>
       <input type="text" class="box" id="set-alang" value="${esc(s.audioLang || '')}" style="width:110px"></div>
   </div>
+  <div class="settings-card"><h3>Automatic subtitle sync</h3>
+    <div class="setting-hint" style="margin-bottom:12px">Aligns local SRT, ASS and SSA subtitles with the dialogue on your computer. Originals are preserved. Enable automation below, or use Subtitles → Auto-sync now in the player.</div>
+    <div class="setting-row"><div><div class="setting-label">Sync new subtitle downloads</div><div class="setting-hint">Automatically analyze downloaded subtitles. Exact file matches are left alone.</div></div><label class="switch"><input type="checkbox" id="set-sync-downloads" ${s.subSyncDownloads ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Sync local subtitles when a video opens</div><div class="setting-hint">Analyze the selected external subtitle using the selected audio track.</div></div><label class="switch"><input type="checkbox" id="set-sync-local" ${s.subSyncLocal ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Apply results that pass the timing checks</div><div class="setting-hint">Uncertain matches always wait for review. Turn off to review every result.</div></div><label class="switch"><input type="checkbox" id="set-sync-apply" ${s.subSyncApply !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Reuse saved corrections</div><div class="setting-hint">Skip repeat analysis when the video, subtitle, audio track and mode are unchanged.</div></div><label class="switch"><input type="checkbox" id="set-sync-reuse" ${s.subSyncReuse !== false ? 'checked' : ''}><span class="knob"></span></label></div>
+    <div class="setting-row"><div><div class="setting-label">Default correction mode</div></div><select class="box" id="set-sync-mode"><option value="smart" ${(s.subSyncMode || 'smart') === 'smart' ? 'selected' : ''}>Smart — drift &amp; cuts</option><option value="gentle" ${s.subSyncMode === 'gentle' ? 'selected' : ''}>Gentle — fewer changes</option><option value="offset" ${s.subSyncMode === 'offset' ? 'selected' : ''}>Offset only</option></select></div>
+    <div class="setting-row"><div><div class="setting-label">Sync engine &amp; saved results</div><div class="setting-hint" id="sync-engine-status">Reading engine status…</div></div><button class="btn ghost" id="sync-open-folder">Show saved files</button></div>
+  </div>
   <div class="settings-card"><h3>Online subtitles</h3>
     <div class="setting-row"><div><div class="setting-label">Search and download subtitles</div>
       <div class="setting-hint">Finds subtitles on OpenSubtitles — free, no account needed.
@@ -543,6 +552,10 @@ function bindView() {
       novaApplyAccent(b.dataset.accent);
       render();
     }));
+    for (const [id, key] of [['downloads', 'subSyncDownloads'], ['local', 'subSyncLocal'], ['apply', 'subSyncApply'], ['reuse', 'subSyncReuse']]) on('#set-sync-' + id, 'change', e => save({ [key]: e.target.checked }));
+    on('#set-sync-mode', 'change', e => save({ subSyncMode: e.target.value }));
+    on('#sync-open-folder', 'click', () => window.nova.subSyncFolder());
+    window.nova.subSyncState().then(state => { const el = $('#sync-engine-status'); if (el) el.textContent = state?.engineReady ? 'Installed · Processes locally · No account or upload required' : 'Sync tools missing — reinstall Nova Player'; });
     on('#set-onlinesubs', 'change', e => save({ onlineSubs: e.target.checked }));
     on('#set-autosubs', 'change', e => save({ autoSubs: e.target.checked }));
     paintLangPicker();

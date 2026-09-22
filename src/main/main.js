@@ -6,11 +6,14 @@ const { MpvController } = require('./mpv');
 const { Library, VIDEO_EXT } = require('./library');
 const updater = require('./updater');
 const subtitles = require('./subtitles');
+const { SubtitleSync } = require('./subtitle-sync');
 
 let win = null;
 let mpv = null;
 let library = null;
 let closing = false;
+let subtitleSync = null;
+let subtitleSyncTimer = null;
 let pendingOpen = collectFileArgs(process.argv);
 
 // ---- single instance: a second launch (e.g. double-clicking a video) routes here
@@ -79,8 +82,27 @@ function createWindow() {
   mpv = new MpvController(win, store, (name, payload) => {
     // A file with no subtitle stream is the one moment auto-fetch is useful;
     // everything else is just relayed to the renderer.
+    if (name === 'file-changing') { subtitleSync?.fileChanged(); return; }
+    if (name === 'file-ready') {
+      clearTimeout(subtitleSyncTimer);
+      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic(), 1500);
+      return;
+    }
+    if (name === 'file-changed') {
+      subtitleSync?.fileChanged();
+      clearTimeout(subtitleSyncTimer);
+      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic(), 1500);
+      return;
+    }
+    if (name === 'playback-ended') subtitleSync?.fileChanged();
     if (name === 'no-subtitles') return void autoFetchSubtitles(payload.path);
     send(name, payload);
+  });
+  subtitleSync = new SubtitleSync({
+    engine: () => mpv, settings: () => store.load().settings,
+    cacheDir: path.join(app.getPath('userData'), 'synced-subtitles'),
+    toolsDir: app.isPackaged ? path.join(process.resourcesPath, 'sync') : path.join(app.getAppPath(), 'vendor', 'sync'),
+    notify: state => { send('subsync-state', state); mpv?.sendOverlay('subsync-state', state); }
   });
   library = new Library(store, mpv.mpvExe(), (ch, payload) => send(ch, payload));
 }
@@ -154,6 +176,8 @@ ipcMain.handle('save-settings', (_e, settings) => {
   // Changing what to search for is the usual reason to want another go at a
   // video auto-fetch already gave up on.
   if ('subLangs' in settings || 'autoSubs' in settings || 'onlineSubs' in settings) autoTried.clear();
+  if ('subSyncMode' in settings && !['smart', 'gentle', 'offset'].includes(settings.subSyncMode)) d.settings.subSyncMode = 'smart';
+  if (Object.keys(settings).some(k => k.startsWith('subSync'))) subtitleSync?.attempted.clear();
   store.save();
   send('settings-changed', d.settings);
   mpv?.sendOverlay('settings-changed', d.settings);
@@ -273,8 +297,21 @@ ipcMain.handle('player-load-sub', async () => {
     filters: [{ name: 'Subtitles', extensions: ['srt', 'ass', 'ssa', 'sub', 'vtt', 'sup', 'idx'] }]
   });
   if (r.canceled || !r.filePaths.length) return null;
-  try { await mpv.exec(['sub-add', r.filePaths[0], 'select']); return r.filePaths[0]; }
+  try { await mpv.addSubtitle(r.filePaths[0], true); subtitleSync?.automatic(); return r.filePaths[0]; }
   catch (err) { return { error: String(err.message || err) }; }
+});
+
+// Automatic subtitle alignment stays in the main process; renderer supplies no paths.
+ipcMain.handle('subsync-state', () => subtitleSync?.getState());
+ipcMain.handle('subsync-start', (_e, options = {}) => subtitleSync?.start({ mode: options.mode, force: options.force === true }));
+ipcMain.handle('subsync-cancel', () => subtitleSync?.cancel());
+ipcMain.handle('subsync-apply', () => subtitleSync?.apply());
+ipcMain.handle('subsync-undo', () => subtitleSync?.undo());
+ipcMain.handle('subsync-folder', () => shell.openPath(path.join(app.getPath('userData'), 'synced-subtitles')));
+ipcMain.handle('subsync-reference', async (_e, mode) => {
+  const r = await dialog.showOpenDialog(win, { title: 'Choose a correctly timed subtitle as a reference', properties: ['openFile'], filters: [{ name: 'Text subtitles', extensions: ['srt', 'ass', 'ssa'] }] });
+  if (r.canceled || !r.filePaths.length) return null;
+  return subtitleSync?.start({ mode, reference: r.filePaths[0], force: true });
 });
 
 // ---------------- online subtitles ----------------
@@ -341,6 +378,7 @@ async function autoFetchSubtitles(file) {
     // may well have skipped to the next episode.
     if (!mpv?.isActive() || !samePath(mpv.currentPath(), file)) return;
     await mpv.addSubtitle(got.file, true);
+    subtitleSync?.automatic({ download: true, exact: best.hashMatch });
     mpv.sendOverlay('subs-auto', {
       state: 'applied',
       lang: best.lang,
@@ -381,7 +419,9 @@ ipcMain.handle('subs-apply', async (_e, id) => {
   if (!sub) return { error: 'That subtitle is no longer in the results — search again' };
   try {
     const got = await subtitles.download(file, sub);
+    if (!mpv?.isActive() || !samePath(mpv.currentPath(), file)) return { error: 'The video changed while the subtitle was downloading.' };
     await mpv.addSubtitle(got.file, true);
+    subtitleSync?.automatic({ download: true, exact: sub.hashMatch });
     return { ok: true, file: got.file, adsRemoved: got.adsRemoved, langName: sub.langName, exact: sub.hashMatch };
   } catch (err) {
     return { error: subtitles.friendlyNetError(err) };
@@ -446,7 +486,7 @@ ipcMain.handle('subs-download-file', async (_e, { path: file, id }) => {
     const got = await subtitles.download(file, sub);
     // If it happens to be what is on screen, put it up straight away.
     if (mpv?.isActive() && samePath(mpv.currentPath(), file)) {
-      try { await mpv.addSubtitle(got.file, true); } catch (_) {}
+      try { await mpv.addSubtitle(got.file, true); subtitleSync?.automatic({ download: true, exact: sub.hashMatch }); } catch (_) {}
     }
     return { ok: true, file: got.file, adsRemoved: got.adsRemoved, langName: sub.langName };
   } catch (err) {
@@ -545,6 +585,7 @@ app.on('before-quit', e => {
   if (updater.blocksQuit()) { e.preventDefault(); return; }
   if (updater.canInstall()) { e.preventDefault(); updater.install(false); return; }
   closing = true;
+  subtitleSync?.cancel();
   store.saveNow();
   if (mpv?.isActive()) { try { mpv.proc.kill(); } catch (_) {} }
 });

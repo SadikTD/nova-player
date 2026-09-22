@@ -8,7 +8,7 @@ app.whenReady().then(async () => {
     for (const page of ['index', 'player']) {
       let html = fs.readFileSync(`src/renderer/${page}.html`, 'utf8');
       html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '').replace('<head>', '<head><base href="../src/renderer/">');
-      html = html.replace(/<script src="(?:app|player)\.js"><\/script>/, '');
+      html = html.replace(/<script src="(?:app|player|sync-player)\.js"><\/script>/, '');
       const mock = `<script>
       window.calls=[];window.api={updateState:async()=>({status:'ready',version:'1.3.2'}),updateInstall:async()=>{calls.push('install');return {status:'installing'}},updateCheck:async()=>({status:'downloading',version:'1.3.2',percent:15}),updateDownloadPage:async()=>calls.push('download'),onUpdate:cb=>window.pushUpdate=cb};
       window.${page === 'index' ? 'nova' : 'player'}=api;

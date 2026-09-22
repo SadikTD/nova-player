@@ -1,6 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('player', {
+  subSyncState: () => ipcRenderer.invoke('subsync-state'),
+  subSyncStart: options => ipcRenderer.invoke('subsync-start', options),
+  subSyncCancel: () => ipcRenderer.invoke('subsync-cancel'),
+  subSyncApply: () => ipcRenderer.invoke('subsync-apply'),
+  subSyncUndo: () => ipcRenderer.invoke('subsync-undo'),
+  subSyncReference: mode => ipcRenderer.invoke('subsync-reference', mode),
+  subSyncFolder: () => ipcRenderer.invoke('subsync-folder'),
+  onSubSync: cb => ipcRenderer.on('subsync-state', (_e, state) => cb(state)),
   updateInstall: () => ipcRenderer.invoke('update-install'),
   updateDownloadPage: () => ipcRenderer.invoke('update-download-page'),
   updateState: () => ipcRenderer.invoke('update-state'),

@@ -1,0 +1,46 @@
+const assert = require('assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { SubtitleSync } = require('../src/main/subtitle-sync');
+const timing = require('../src/main/subtitle-timing');
+const root = path.resolve(__dirname, '..');
+const tmp = fs.mkdtempSync(path.join(root, 'dist', 'sync-test-'));
+function stamp(t) { const ms = Math.round(t * 1000); return `${String(Math.floor(ms / 3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')},${String(ms%1000).padStart(3,'0')}`; }
+function srt(list) { return list.map((c,i)=>`${i+1}\n${stamp(c.start)} --> ${stamp(c.end)}\n${c.text}\n`).join('\n'); }
+let seed=37; const rand=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
+let time=3;const good=Array.from({length:80},(_,i)=>{time+=1+rand()*3;const c={start:time,end:time+1+rand()*2,text:`A distinct dialogue line ${i+1}.`};time=c.end;return c;});
+const bad=good.map((c,i)=>({...c,start:c.start+(i<40?2:7),end:c.end+(i<40?2:7)}));
+const video=path.join(tmp,'episode.mkv'),source=path.join(tmp,'episode.srt'),reference=path.join(tmp,'reference.srt');
+fs.writeFileSync(video,'reference-only fixture');fs.writeFileSync(source,srt(bad));fs.writeFileSync(reference,srt(good));
+let activeVideo=video,selected=source,delay=2,speed=1.01;
+const settings={subSyncMode:'smart',subSyncApply:false,subSyncReuse:true};
+const engine={isActive:()=>true,getProp:async p=>({path:activeVideo,'track-list':[{type:'sub',selected:true,external:true,'external-filename':selected},{type:'audio',selected:true,'ff-index':0}],duration:time+20,'sub-delay':delay,'sub-speed':speed})[p],addSubtitle:async file=>{selected=file;},exec:async c=>{if(c[1]==='sub-delay')delay=c[2];if(c[1]==='sub-speed')speed=c[2];}};
+const sync=new SubtitleSync({engine:()=>engine,settings:()=>settings,cacheDir:path.join(tmp,'cache'),toolsDir:path.join(root,'vendor/sync'),notify:()=>{}});
+(async()=>{
+ const original=fs.readFileSync(source,'utf8');
+ await sync.start({reference,mode:'smart'});await sync.job?.done;
+ assert.equal(sync.state.status,'review',sync.state.message);
+ assert.equal(sync.state.summary.reliable,true);
+ const result=timing.cues(fs.readFileSync(sync.result.output,'utf8'));
+ assert(result.every((c,i)=>Math.abs(c.start-good[i].start)<.12),'piecewise +2s / +7s correction');
+ assert.equal(fs.readFileSync(source,'utf8'),original,'original unchanged');
+ await sync.apply();assert.equal(sync.state.status,'applied');assert.equal(delay,0);assert.equal(speed,1);
+ settings.subSyncApply=true;sync.fileChanged();selected=source;delay=2;speed=1.01;
+ await sync.automatic();assert.equal(sync.state.status,'applied','approved reference correction reused on reopening');assert.equal(sync.job,null,'reuse skips analysis');
+ settings.subSyncApply=false;
+ const appliedMetadata = sync.result.metadataFile;
+ await sync.start({reference,force:true}); sync.cancel(); await sync.job?.done;
+ assert.equal(sync.getState().canUndo,true,'cancelled rerun preserves Undo');
+ await sync.start({reference,force:true}); await sync.job?.done;
+ assert.equal(sync.getState().canUndo,true,'reviewing a rerun preserves Undo');
+ await sync.apply();
+ await sync.undo();assert.equal(selected,source);assert.equal(delay,2);assert.equal(speed,1.01);
+ assert.equal(JSON.parse(fs.readFileSync(appliedMetadata)).disabled,true,'undo disables automatic reuse');
+ await sync.start({reference,mode:'smart',force:true});sync.cancel();await sync.job?.done;
+ assert.equal(sync.state.status,'cancelled');assert.equal(selected,source);
+ await sync.start({reference,force:true});sync.fileChanged();activeVideo=path.join(tmp,'other.mkv');await sync.job?.done;
+ assert.equal(sync.state.status,'idle');assert.equal(sync.getState().busy,false);assert.equal(selected,source,'new episode cannot receive old correction');
+ const uncertain=timing.assess(good,good,good.map(c=>({...c,start:c.start+10000,end:c.end+10000})),time+20);assert.equal(uncertain.reliable,false);
+ assert.throws(()=>timing.assess(good,good.map(c=>({...c,text:'changed'})),good));
+ console.log('PASS: real alass segmented +2s/+7s alignment, output validation, apply, manual-timing reset, undo, cancellation, episode switch, uncertain-match gate');
+})().catch(e=>{console.error(e);process.exitCode=1;});

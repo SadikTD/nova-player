@@ -27,6 +27,11 @@ const DEFAULTS = {
     sortBy: 'name',         // library "All videos" ordering
     nextUpCard: true,       // "Next up" card near the end of an episode
     onlineSubs: true,       // subtitle search & download from OpenSubtitles
+    subSyncDownloads: false, // opt in: align downloaded subtitles unless an exact match
+    subSyncLocal: false,     // opt in: analyze local external text subtitles on open
+    subSyncApply: true,      // apply only results that pass the speech-overlap checks
+    subSyncReuse: true,
+    subSyncMode: 'smart',
     autoSubs: true,         // fetch one by itself when a video has none at all
     subLangs: ['eng']       // languages to search, in order of preference
   }

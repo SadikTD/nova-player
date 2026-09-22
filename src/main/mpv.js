@@ -640,6 +640,7 @@ class MpvController {
 
   _onMpvEvent(msg) {
     if (msg.event === 'start-file' || msg.event === 'end-file') {
+      this.onEvent('file-changing', {});
       this._saveProgress(msg.event === 'end-file' && msg.reason === 'eof');
       this._fileEpoch = (this._fileEpoch || 0) + 1;
       this._progressSnapshot = null;
@@ -650,6 +651,7 @@ class MpvController {
       return;
     }
     if (msg.event === 'file-loaded') {
+      this.onEvent('file-ready', {});
       this._loadingFile = false;
       // Timing corrections belong to this video, never the next queue item.
       for (const [name, value] of Object.entries({ 'sub-delay': 0, 'sub-speed': 1, 'audio-delay': 0 })) {
@@ -678,6 +680,7 @@ class MpvController {
       this._path = data;
       this._markHistory(data);
       if (changed) {
+        this.onEvent('file-changed', { path: data });
         this._stallSince = 0;
         this._stallPos = null;
       }

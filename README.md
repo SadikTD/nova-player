@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.3.1-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.4.0-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -18,6 +18,23 @@
 </p>
 
 ---
+
+## What's new in 1.4.0
+
+**Automatic subtitle sync, entirely on your computer.** In the player, open **Subtitles → Auto-sync now**. Nova analyzes the selected audio track across the video, corrects timing changes and drift, and creates a separate corrected subtitle. Your original is never overwritten.
+
+Use **Options & results** for:
+
+- **Smart** mode for drift and timing changes after cuts; **Gentle** mode for fewer changes; **Offset only** for one constant delay.
+- A correctly timed subtitle file as a reference, including one in another language.
+- Background status, cancellation, speech-overlap estimates, manual result review, and **Restore original**.
+- Reusing approved corrections on reopening the same video, without analyzing it again.
+
+In **Settings → Automatic subtitle sync**, opt into syncing new downloads or local subtitles on open, choose the default mode, and control automatic application and reuse. Automatic analysis is off by default; applying results that pass the timing checks and reusing approved corrections are on. Exact-match downloads skip new analysis. Uncertain results always wait for review.
+
+Supports external **SRT, ASS and SSA** subtitles with local video files. Embedded/image subtitles and internet streams are not supported by auto-sync yet. The speech-overlap estimate is a heuristic, not a guarantee that the dialogue matches. For a wrong episode or substantially different cut, try another subtitle. Analysis uses additional CPU/disk temporarily; switching episodes or closing playback cancels it.
+
+The installer and portable ZIP include the local tools. For a source checkout, run **npm run setup:sync** once. Engine versions, artifact checksums and source/license information are in [docs/sync-tools-sources.md](docs/sync-tools-sources.md).
 
 ## What's new in 1.3.1
 

@@ -572,7 +572,11 @@ POP_REFRESH.subs = () => {
         <span class="p-main">${esc(trackLabel(t))}</span>
         <span class="p-side">${esc(t.codec || '')}</span>
       </div>`).join('') +
-    timingCard('sub-delay', 'Subtitle timing') +
+    `<div class="sync-card auto-sync-card">
+      <div class="sync-heading"><span>Automatic sync</span><span class="sync-local">ON DEVICE</span></div>
+      <p class="sync-help">Match subtitles to speech across the whole video — including timing changes midway.</p>
+      <div class="sync-actions"><button class="mini-btn acc" id="auto-sync-now">Auto-sync now</button><button class="mini-btn" id="auto-sync-options">Options &amp; results</button></div>
+    </div>` + timingCard('sub-delay', 'Subtitle timing') +
     `<div class="sync-card drift-card">
        <div class="sync-heading"><span>Subtitle speed</span><button class="mini-btn" id="rate-reset">Reset</button></div>
        <p class="sync-help">Starts in sync, then drifts? Adjust the subtitle speed only.</p>
@@ -597,6 +601,8 @@ POP_REFRESH.subs = () => {
     if (r && !r.error) toast('Subtitle loaded');
   });
   $('#sub-online').addEventListener('click', () => { closePopover(); openSubsSheet(); });
+  $('#auto-sync-now').addEventListener('click', () => openSyncSheet(true));
+  $('#auto-sync-options').addEventListener('click', () => openSyncSheet(false));
   bindTiming('sub-delay');
   const rate = $('#sub-rate');
   const applyRate = value => {
