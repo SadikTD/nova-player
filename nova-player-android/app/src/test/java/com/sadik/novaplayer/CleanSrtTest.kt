@@ -13,6 +13,12 @@ class CleanSrtTest {
         assertFalse(out.contains("VIP")); assertFalse(out.contains("osdb.link")); assertFalse(out.contains('\r'))
         assertEquals("1\n00:00:04,000 --> 00:00:06,000\nHello there.\n", out)
     }
+    @Test fun titlesLoseDanglingSeparators() {
+        assertEquals("Sintel", OnlineSubtitles.parseTitle("Sintel (2010).mkv").title)
+        assertEquals("The Show", OnlineSubtitles.parseTitle("The Show - S01E02.mkv").title)
+        assertEquals("Movie Name", OnlineSubtitles.parseTitle("Movie.Name.[2019].1080p.mkv").title)
+        assertEquals("The Mentalist", OnlineSubtitles.parseTitle("The.Mentalist.S07E13.1080p.AMZN.WEB-DL.x265-HETeam.mkv").title)
+    }
     @Test fun untimedTextPassesThroughUntouched() { assertEquals("just text", cleanSrt("just text")) }
     @Test fun adDetectionIgnoresTags() { assertTrue(looksLikeAd("<i>www.example.com</i>")); assertFalse(looksLikeAd("<i>See you tomorrow.</i>")) }
 }

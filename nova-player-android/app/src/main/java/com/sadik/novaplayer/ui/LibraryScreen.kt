@@ -99,7 +99,8 @@ fun sorted(rows: List<Video>, sort: String) = when (sort) {
     // Deleted or renamed videos drop out of the selection by themselves.
     LaunchedEffect(videos) { if (picked.isNotEmpty()) { val live = videos.mapTo(HashSet()) { it.uri }; picked = picked.filterTo(HashSet()) { it in live } } }
     val play: (Video, List<String>) -> Unit = { v, q -> activity.play(v, q) }
-    val bottomPad = if (playing.video != null) 176.dp else 108.dp
+    // The selection bar is taller than the nav bar: leave room so the last rows can scroll clear of it.
+    val bottomPad = when { sel.active -> 196.dp; playing.video != null -> 176.dp; else -> 108.dp }
 
     Box(Modifier.fillMaxSize().background(Nova.Bg)) {
         Aurora()
@@ -513,7 +514,8 @@ private fun greeting() = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
         if (img != null && Build.VERSION.SDK_INT >= 31) Image(img, null, Modifier.matchParentSize().padding(horizontal = 16.dp).offset(y = 14.dp).blur(38.dp, BlurredEdgeTreatment.Unbounded).alpha(.75f), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxWidth().aspectRatio(1.55f).clip(RoundedCornerShape(28.dp)).background(mood).bouncy(onClick = resume)) {
             if (img != null) Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = .15f), .45f to Color.Transparent, 1f to Color.Black.copy(alpha = .92f))))
+            // Deep enough behind the title that white text stays readable on bright posters (snow, sky, white rooms).
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = .25f), .3f to Color.Black.copy(alpha = .12f), .55f to Color.Black.copy(alpha = .6f), 1f to Color.Black.copy(alpha = .94f))))
             Text("CONTINUE WATCHING", Modifier.padding(16.dp).background(Color.Black.copy(alpha = .45f), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 5.dp),
                 style = Kicker, color = Color.White, fontSize = 10.sp)
             Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {

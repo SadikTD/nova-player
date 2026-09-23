@@ -24,10 +24,12 @@ object OnlineSubtitles {
     fun parseTitle(name: String): ParsedTitle {
         val base = name.substringBeforeLast('.').replace(Regex("[._]+"), " ").replace(Regex("^\\[[^]]+]"), "").trim()
         val episode = Regex("(?i)\\b(?:s(\\d{1,2})[ .-]*e(\\d{1,3})|(\\d{1,2})x(\\d{1,3}))\\b").find(base)
-        if (episode != null) return ParsedTitle(base.substring(0, episode.range.first).trim(), (episode.groupValues[1].ifBlank { episode.groupValues[3] }).toInt(), (episode.groupValues[2].ifBlank { episode.groupValues[4] }).toInt())
+        // "Sintel (2010)" / "Show - S01E02": drop the separators left dangling before the year or episode.
+        fun String.tidy() = trimEnd(' ', '(', '[', '{', '-', ',', '–').trim()
+        if (episode != null) return ParsedTitle(base.substring(0, episode.range.first).tidy(), (episode.groupValues[1].ifBlank { episode.groupValues[3] }).toInt(), (episode.groupValues[2].ifBlank { episode.groupValues[4] }).toInt())
         val anime = Regex("^(.+?) - (\\d{1,3})(?:v\\d)?(?: |$)").find(base)
         if (anime != null) return ParsedTitle(anime.groupValues[1], 1, anime.groupValues[2].toInt())
-        return ParsedTitle(base.split(Regex("(?i)\\b(?:19\\d{2}|20\\d{2}|\\d{3,4}p|2160|uhd|bluray|web dl|webrip|hdtv|x264|x265|hevc)\\b"))[0].trim().ifBlank { base }, null, null)
+        return ParsedTitle(base.split(Regex("(?i)\\b(?:19\\d{2}|20\\d{2}|\\d{3,4}p|2160|uhd|bluray|web dl|webrip|hdtv|x264|x265|hevc)\\b"))[0].tidy().ifBlank { base }, null, null)
     }
     private fun request(address: String): ByteArray {
         var url = URL(address)

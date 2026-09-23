@@ -66,7 +66,7 @@ Requires 64-bit Windows 10 or 11.
 
 ### Android
 
-**[⬇ Nova Player for Android 1.1.0](../../releases/tag/android-v1.1.0)** — download `Nova-Player-Android-1.1.0.apk` on your phone, open it, and allow your browser or file manager to install apps when Android asks. Requires Android 6.0 or newer (64-bit phones). Same engine and the same subtitle search and sync as the desktop, with a touch-first library, MX-style gestures, multi-select, storage clean-up and background playback. See the [Android privacy policy](nova-player-android/PRIVACY.md).
+**[⬇ Nova Player for Android 1.1.1](../../releases/tag/android-v1.1.1)** — download `Nova-Player-Android-1.1.1.apk` on your phone, open it, and allow your browser or file manager to install apps when Android asks. Requires Android 6.0 or newer (64-bit phones). Same engine and the same subtitle search and sync as the desktop, with a touch-first library, MX-style gestures, multi-select, storage clean-up and background playback. See the [Android privacy policy](nova-player-android/PRIVACY.md).
 
 ### About the Windows warning
 

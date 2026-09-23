@@ -1,7 +1,7 @@
 # Publishing Nova Player on Google Play
 
 Everything to paste into Play Console, in the order the Console asks for it.
-Graphics are in this folder (`icon-512.png`, `feature-graphic.png`).
+Graphics are in this folder (`icon-512.png`, `feature-graphic.png`, `screenshots/`).
 
 ---
 
@@ -78,11 +78,14 @@ PRIVATE BY DESIGN
 • Everything stays on your phone; subtitle sync runs entirely on-device
 
 Nova Player is open source (GPL). Source code: https://github.com/SadikTD/nova-player
+
+Screenshots show "Sintel" © Blender Foundation | durian.blender.org, licensed CC BY 3.0.
 ```
 
 **Graphics:** app icon `icon-512.png` · feature graphic `feature-graphic.png` ·
-phone screenshots (2–8, use only free sample videos such as Big Buck Bunny / Sintel —
-never your own library).
+phone screenshots `screenshots/1-home.png` … `6-subtitle-tracks.png` (upload all six).
+They show *Sintel* (© Blender Foundation, CC BY 3.0) and generated fractal clips — never
+use shots of your own library.
 
 **Category:** Video Players & Editors · **Tags:** Video player, Media player
 **Contact email:** required by Play — use an address you're happy to show publicly
@@ -150,7 +153,7 @@ location, accessibility or all-files-access permissions are used.
 ## 4. Release
 
 1. **Testing → Closed testing → Create track**, upload the `.aab`.
-2. Release name `1.1.0 (3)`. Release notes:
+2. Release name `1.1.1 (4)`. Release notes:
    ```
    First release of Nova Player for Android.
    ```

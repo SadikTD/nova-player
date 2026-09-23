@@ -218,10 +218,13 @@ object NovaRuntime {
                             val results = withContext(Dispatchers.IO) { OnlineSubtitles.search(video, "", text("subLangs", "eng").split(',')) }
                             // Try the best few: one broken upload must not leave the video without subtitles.
                             var added: SubtitleResult? = null
+                            // The user may load their own subtitle while this runs — theirs always wins.
+                            fun userLoaded() = tracks().any { it.type == "sub" }
                             for (result in results.take(4)) {
-                                if (token != generation) return@runCatching
+                                if (token != generation || userLoaded()) return@runCatching
                                 val file = runCatching { withContext(Dispatchers.IO) { OnlineSubtitles.download(video, result) } }.getOrNull() ?: continue
-                                if (token == generation && attachSubtitle(file, original = true)) { added = result; break }
+                                if (token != generation || userLoaded()) return@runCatching
+                                if (attachSubtitle(file, original = true)) { added = result; break }
                             }
                             if (token != generation) return@runCatching
                             notice.value = when {

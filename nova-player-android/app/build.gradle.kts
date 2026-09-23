@@ -19,8 +19,8 @@ android {
         applicationId = "com.sadik.novaplayer"
         targetSdk = 36
         minSdk = 23
-        versionCode = 3
-        versionName = "1.1.0"
+        versionCode = 4
+        versionName = "1.1.1"
         manifestPlaceholders["appLabel"] = "Nova Player"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "com.sadik.novaplayer.NativeAnalysisTest"
@@ -87,9 +87,8 @@ android {
 
     packaging {
         jniLibs {
-            // REQUIRED for alass: libalass-cli.so must be extracted to disk in
-            // nativeLibraryDir before it can be execve()'d. With the modern
-            // default (uncompressed, memory-mapped) there is no file to execute.
+            // Compressed native libraries: the APK download is about half the size
+            // (32 MB instead of ~65 MB); Android extracts them once at install.
             useLegacyPackaging = true
         }
         resources {
