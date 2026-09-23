@@ -8,13 +8,16 @@
 #
 # Pins (change these deliberately, and update native-libs.sha256 consumers):
 #   MPV_ANDROID_TAG  -- mpv-android buildscripts snapshot
-#   MPV_TAG          -- mpv version (matches the desktop's mpv 0.41)
+#   MPV_TAG          -- mpv tag or full commit SHA. Must be a revision the mpv-android
+#                       snapshot's build options support (it passes e.g. -Dlibcurl,
+#                       which v0.41.0 lacks); pinned to the mpv inside that snapshot's
+#                       release APK -- the build Nova was validated on.
 #
 # Requires: Linux (or WSL2). Produces jniLibs/<abi>/*.so + native-libs.sha256.
 set -euo pipefail
 
 MPV_ANDROID_TAG="${MPV_ANDROID_TAG:-2026-09-17}"
-MPV_TAG="${MPV_TAG:-v0.41.0}"
+MPV_TAG="${MPV_TAG:-0b7ed670f7c353dd3dd4f8ae0fc788a181a15aa6}" # mpv v0.41.0-1049-g0b7ed670f
 ABIS="${ABIS:-arm64-v8a x86_64}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,7 +64,12 @@ export WGET="wget --progress=bar:force"
 export IN_CI=1
 
 echo "==> installing SDK + NDK"
-./include/download-sdk.sh
+# Google's SDK mirror occasionally serves a truncated zip ("unknown archive"); retry.
+for attempt in 1 2 3; do
+	./include/download-sdk.sh && break
+	[ "$attempt" = 3 ] && { echo "SDK download failed 3 times" >&2; exit 1; }
+	echo "==> SDK download failed (attempt $attempt), retrying in 20 s"; sleep 20
+done
 
 echo "==> fetching dependency sources"
 ./include/download-deps.sh
@@ -71,8 +79,11 @@ echo "==> fetching dependency sources"
 echo "==> pinning mpv to $MPV_TAG (overrides upstream's unpinned master fetch)"
 rm -rf deps/mpv
 mkdir -p deps/mpv
-git clone --depth=1 --branch "$MPV_TAG" \
-	https://github.com/mpv-player/mpv.git deps/mpv
+# fetch-by-revision works for both tags and full commit SHAs
+git -C deps/mpv init -q
+git -C deps/mpv remote add origin https://github.com/mpv-player/mpv.git
+git -C deps/mpv fetch -q --depth=1 origin "$MPV_TAG"
+git -C deps/mpv checkout -q FETCH_HEAD
 
 # -------------------------------------------------------------------- build
 for abi in $ABIS; do

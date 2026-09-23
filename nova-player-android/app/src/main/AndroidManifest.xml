@@ -4,12 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!--
-      Phase 0 spike manifest: playback from a single file handed to the activity.
-      Library scanning permissions (READ_MEDIA_VIDEO etc.) and the intent-filters
-      arrive in Phase 1/3 — declared here in one place so Play's permission
-      declaration is written against a complete list.
-    -->
+    <!-- Library: see the phone's videos (Android 13+ may grant only user-selected ones). -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <!-- API 32 and below -->
@@ -26,8 +21,6 @@
     <!-- Background/lockscreen playback. Type is required on Android 14+. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- Auto subtitle sync runs a bounded local job with a notification. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Keep the video awake while playing (the desktop's always-on-top analogue). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

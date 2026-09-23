@@ -2,7 +2,6 @@
 #
 # Produces, for each ABI:
 #   libmpv.so, libass.so, libav*.so  (mpv-android's buildscripts, pinned)
-#   libalass-cli.so                  (alass 2.0.0 via cargo-ndk, pinned)
 # plus native-libs.sha256, which the Gradle build verifies before packaging.
 #
 # Binaries are published to a GitHub Release and are NEVER committed to git --
@@ -23,15 +22,12 @@ on:
     branches: [main]
     paths:
       - "nova-player-android/scripts/build-native.sh"
-      - "nova-player-android/scripts/build-alass.sh"
       - ".github/workflows/native-libs.yml"
 
 env:
   # Pin these deliberately. Changing either one changes the binaries users get.
   MPV_ANDROID_TAG: "2026-09-17" # mpv-android buildscripts snapshot (pins NDK r30, ffmpeg n9.0, ...)
-  MPV_TAG: "v0.41.0"            # matches the desktop's mpv 0.41
-  ALASS_TAG: "v2.0.0"
-  CARGO_NDK_VERSION: "3.5.1"
+  MPV_TAG: "0b7ed670f7c353dd3dd4f8ae0fc788a181a15aa6" # mpv v0.41.0-1049-g0b7ed670f, the mpv in mpv-android 2026-09-17
 
 jobs:
   build:
@@ -55,23 +51,6 @@ jobs:
           sudo apt-get install -y autoconf pkgconf libtool ninja-build python3-pip gperf nasm
           sudo pip3 install --break-system-packages meson
 
-      - name: Install Rust + cargo-ndk
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.abi == 'arm64-v8a' && 'aarch64-linux-android' || 'x86_64-linux-android' }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            nova-player-android/.native-work/alass/target
-          key: cargo-alass-${{ env.ALASS_TAG }}-${{ matrix.abi }}
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --version "${{ env.CARGO_NDK_VERSION }}" --locked
-
       # The prefix cache is keyed on the pins above: any pin change invalidates
       # every cached dependency build. Never let a stale prefix leak across pins.
       - name: Cache native prefix
@@ -89,13 +68,6 @@ jobs:
           MPV_ANDROID_TAG: ${{ env.MPV_ANDROID_TAG }}
           MPV_TAG: ${{ env.MPV_TAG }}
         run: bash nova-player-android/scripts/build-native.sh
-
-      - name: Build alass
-        env:
-          ABIS: ${{ matrix.abi }}
-          ALASS_TAG: ${{ env.ALASS_TAG }}
-          ANDROID_NDK_ROOT: ${{ github.workspace }}/nova-player-android/.native-work/mpv-android/buildscripts/sdk/android-ndk-r30
-        run: bash nova-player-android/scripts/build-alass.sh
 
       - name: Upload ABI bundle
         uses: actions/upload-artifact@v7
@@ -135,7 +107,6 @@ jobs:
           mkdir -p release/jniLibs
           for abi in arm64-v8a x86_64; do
             test -f "bundles/jniLibs/$abi/libmpv.so"
-            test -f "bundles/jniLibs/$abi/libalass-cli.so"
             mkdir -p "release/jniLibs/$abi"
             cp -av "bundles/jniLibs/$abi/." "release/jniLibs/$abi/"
           done
@@ -162,7 +133,6 @@ jobs:
             |---|---|
             | mpv-android buildscripts | `${{ env.MPV_ANDROID_TAG }}` |
             | mpv | `${{ env.MPV_TAG }}` |
-            | alass | `${{ env.ALASS_TAG }}` |
             | ABIs | `arm64-v8a`, `x86_64` |
 
             Rebuild this exactly with the `native-libs` workflow at these pins.

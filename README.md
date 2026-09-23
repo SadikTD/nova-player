@@ -59,10 +59,14 @@ Keyboard: **Z / X** adjusts subtitles by 0.1 seconds; **Shift + Z / X** adjusts 
 
 | | |
 |---|---|
-| **`Nova-Player-Setup-1.2.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
-| **`Nova-Player-1.2.0-portable.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
+| **`Nova-Player-Setup-1.4.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
+| **`Nova.Player-1.4.0-win.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
 
 Requires 64-bit Windows 10 or 11.
+
+### Android
+
+**[⬇ Nova Player for Android 1.1.0](../../releases/tag/android-v1.1.0)** — download `Nova-Player-Android-1.1.0.apk` on your phone, open it, and allow your browser or file manager to install apps when Android asks. Requires Android 6.0 or newer (64-bit phones). Same engine and the same subtitle search and sync as the desktop, with a touch-first library, MX-style gestures, multi-select, storage clean-up and background playback. See the [Android privacy policy](nova-player-android/PRIVACY.md).
 
 ### About the Windows warning
 
@@ -73,7 +77,7 @@ Nova Player isn't signed with a commercial code-signing certificate, so the firs
 This is expected for any independently released app without a paid certificate. Click **More info → Run anyway** to continue. If you'd like to confirm the download arrived intact, `SHA256SUMS.txt` is attached to every release:
 
 ```powershell
-Get-FileHash .\Nova-Player-Setup-1.2.0.exe
+Get-FileHash .\Nova-Player-Setup-1.4.0.exe
 ```
 
 ---
