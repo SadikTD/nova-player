@@ -11,6 +11,8 @@ import kotlin.math.*
 
 data class SyncState(val running:Boolean=false,val message:String="",val result:File?=null,val video:String="",val reliable:Boolean=true,val shift:Double=0.0)
 object SubtitleJobs {
+    /** "Show.S01E01.en.srt" for the file the user knows, even when the source is a stored copy. */
+    private fun originalName(f: File)=f.nameWithoutExtension.removeSuffix(".synced")
     val state=MutableStateFlow(SyncState())
     private var job:Job?=null
     fun cancel(){job?.cancel();runCatching{MpvNative.cancelAnalysis()};if(state.value.running)state.value=SyncState(message="Alignment cancelled. Original subtitle kept.")}
@@ -43,7 +45,7 @@ object SubtitleJobs {
                     val original=source.readText();val before=SubtitleTiming.cues(original,".${source.extension}")
                     require(SubtitleTiming.valid(before)){"Subtitle timings could not be read"}
                     val key=stableId(video.uri+video.size+source.readBytes().contentHashCode()+mode+aid+(reference?.readText()?:"audio-v1"))
-                    val output=File(NovaRuntime.app.filesDir,"subtitles/sync-$key.${source.extension}")
+                    val output=NovaRuntime.subtitleFile("sync-$key","${originalName(source)}.synced.${source.extension}")
                     if(NovaRuntime.pref("subSyncReuse",true)&&output.isFile&&File(output.path+".approved").isFile)return@withContext Triple(output,"Reused your previously approved correction.",true)
                     val speech=if(reference!=null) SubtitleTiming.cues(reference.readText(),".${reference.extension}") else {
                         state.value=state.value.copy(message="Listening for speech locally on your phone…")

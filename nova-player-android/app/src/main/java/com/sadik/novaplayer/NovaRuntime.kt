@@ -351,10 +351,16 @@ object NovaRuntime {
             runCatching { File(f).inputStream().use { String(it.readNBytes(65536), Charsets.UTF_8) } }.getOrNull()?.let(::dominantScript) }
         engine.setStr("sub-font", script ?: "Roboto")
     }
+    /** Stored subtitles keep a readable name (mpv shows the file name as the track title);
+     *  the folder carries the unique key so different sources never collide. */
+    fun subtitleFile(key: String, name: String): File {
+        val safe = name.replace(Regex("""[\\/:*?"<>|\x00-\x1f]"""), " ").trim().take(120).ifBlank { "subtitle.srt" }
+        return File(app.filesDir, "subtitles/$key/$safe").apply { parentFile?.mkdirs() }
+    }
     suspend fun importSubtitle(uri: Uri): File = withContext(Dispatchers.IO) {
         val name = app.contentResolver.query(uri, arrayOf("_display_name"), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "subtitle.srt"
         val ext = name.substringAfterLast('.').lowercase(); require(ext in setOf("srt", "ass", "ssa", "vtt", "sub", "idx", "sup")) { "Choose a subtitle file (SRT, ASS, SSA, VTT, SUB, SUP)" }
-        val file = File(app.filesDir, "subtitles/${stableId(uri.toString())}.$ext").apply { parentFile?.mkdirs() }
+        val file = subtitleFile(stableId(uri.toString()), name)
         val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytesLimited(8 * 1024 * 1024) } ?: error("Cannot read subtitle")
         file.writeBytes(if (ext == "srt") healSrtBytes(bytes) ?: bytes else bytes); file
     }

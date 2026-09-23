@@ -255,7 +255,7 @@ fun chapterAt(s: Playing, t: Double): String? = s.chapters.lastOrNull { it.time 
  */
 @Composable private fun SyncBadge(s: Playing, sync: SyncState, onClick: () -> Unit) {
     val mine = sync.video == s.video?.uri
-    val synced = s.video?.externalSub?.substringAfterLast('/')?.startsWith("sync-") == true && s.tracks.any { it.type == "sub" && it.selected && it.external }
+    val synced = s.video?.externalSub?.let { "/sync-" in it } == true && s.tracks.any { it.type == "sub" && it.selected && it.external }
     val (text, color) = when {
         mine && sync.running -> "Syncing subtitles…" to LocalAccent.current.light
         mine && sync.result != null -> "Review subtitle sync" to Nova.Boost

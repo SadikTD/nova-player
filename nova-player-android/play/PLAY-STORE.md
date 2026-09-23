@@ -7,7 +7,7 @@ Graphics are in this folder (`icon-512.png`, `feature-graphic.png`).
 
 ## 0. Before you start
 
-- **Upload file:** `app-release.aab` (attached to the GitHub release, or build with
+- **Upload file:** `dist/android/Nova-Player-Android-<version>.aab` on this PC (or build with
   `gradlew :app:bundleRelease`). Play takes the AAB, not the APK.
 - **Signing:** when Console asks about *Play App Signing*, choose
   **"Use my own key" → "Export and upload a key from Java keystore"** and follow its
@@ -149,7 +149,7 @@ location, accessibility or all-files-access permissions are used.
 
 ## 4. Release
 
-1. **Testing → Closed testing → Create track**, upload `app-release.aab`.
+1. **Testing → Closed testing → Create track**, upload the `.aab`.
 2. Release name `1.1.0 (3)`. Release notes:
    ```
    First release of Nova Player for Android.

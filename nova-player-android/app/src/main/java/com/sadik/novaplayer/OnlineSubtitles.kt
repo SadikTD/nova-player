@@ -115,7 +115,8 @@ object OnlineSubtitles {
         text = if (result.format == "srt") cleanSrt(text)
             else text.lines().filterNot { it.startsWith("Dialogue:", true) && looksLikeAd(it.substringAfterLast(",,")) }.joinToString("\n")
         require(text.isNotBlank()) { "Downloaded subtitle is empty" }
-        val file = File(NovaRuntime.app.filesDir, "subtitles/${stableId(video.uri)}-${result.id}.${result.format}").apply { parentFile?.mkdirs() }
+        val base = result.name.removeSuffix(".${result.format}").ifBlank { video.title.substringBeforeLast('.') }
+        val file = NovaRuntime.subtitleFile("${stableId(video.uri)}-${result.id}", "$base.${result.language}.${result.format}")
         file.writeText(text); return file
     }
     fun batch(videos: List<Video>) {

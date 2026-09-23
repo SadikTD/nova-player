@@ -243,6 +243,8 @@ private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "sub
     LaunchedEffect(Unit) { if (results.isEmpty()) search() }
     Text(parsed?.let { listOfNotNull(it.title, it.episode?.let { e -> "S%02dE%02d".format(it.season ?: 1, e) }).joinToString(" · ") } ?: "", color = Nova.Dim, fontSize = 13.sp)
     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text("Different title? Type it here") }, singleLine = true, shape = RoundedCornerShape(14.dp),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { if (!busy) search() }),
         trailingIcon = { IconButton({ search() }, enabled = !busy) { Icon(Icons.Rounded.Search, "Search") } })
     Text("Languages: " + langs.mapNotNull { c -> LANGUAGES.find { it.first == c }?.third }.joinToString(", ") + " · change in Settings", color = Nova.Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 10.dp).clip(CircleShape), color = accent.light)

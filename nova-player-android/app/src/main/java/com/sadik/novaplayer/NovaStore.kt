@@ -121,7 +121,7 @@ class NovaStore(val context: Context) {
             val own = File(context.filesDir, "subtitles").canonicalPath
             for (v in items) {
                 thumb(v).delete()
-                for (path in setOf(v.externalSub, v.originalSub)) if (path.isNotBlank()) runCatching { File(path).takeIf { it.canonicalPath.startsWith(own) }?.let { File(it.path + ".approved").delete(); it.delete() } }
+                for (path in setOf(v.externalSub, v.originalSub)) if (path.isNotBlank()) runCatching { File(path).takeIf { it.canonicalPath.startsWith(own) }?.let { File(it.path + ".approved").delete(); it.delete(); it.parentFile?.takeIf { d -> d.canonicalPath != own && d.list()?.isEmpty() == true }?.delete() } }
             }
         }
     }
@@ -214,8 +214,7 @@ class NovaStore(val context: Context) {
             val base = v.title.substringBeforeLast('.').lowercase()
             val match = siblings.sortedBy { it.first.length }.firstOrNull { val name=it.first.substringBeforeLast('.').lowercase(); name==base || name.startsWith("$base.") } ?: continue
             runCatching {
-                val file=File(context.filesDir,"subtitles/${stableId(match.second.toString())}.${match.first.substringAfterLast('.').lowercase()}")
-                file.parentFile?.mkdirs()
+                val file=NovaRuntime.subtitleFile(stableId(match.second.toString()), match.first)
                 context.contentResolver.openInputStream(match.second)?.use { file.writeBytes(it.readBytesLimited(8*1024*1024)) }
                 if(file.isFile) out[i]=v.copy(externalSub=file.path,originalSub=file.path)
             }
