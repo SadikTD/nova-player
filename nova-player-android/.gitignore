@@ -1,0 +1,29 @@
+# Gradle / Android Studio
+.gradle/
+build/
+local.properties
+.cxx/
+captures/
+.externalNativeBuild/
+*.iml
+.idea/
+
+# Cross-compiled native output is CI-produced and published as a GitHub Release
+# asset. Never commit binaries to git — that is what keeps the GPL "corresponding
+# source" offer honest (the workflow + pins rebuild exactly what we ship).
+app/src/main/jniLibs/**/*.so
+app/src/main/jniLibs/native-libs.sha256
+app/src/main/jniLibs/debug-origin.json
+app/src/main/jni/include/
+
+# Build scratch from scripts/build-native.sh and scripts/build-alass.sh
+.native-work/
+
+# Signing keystore is generated per-developer and must never be published.
+*.jks
+*.keystore
+keystore.properties
+
+# Upstream checkout; vendored source lives in third_party/fvad.
+app/src/main/jni/third_party/libfvad/
+.kotlin/

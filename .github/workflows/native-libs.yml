@@ -1,0 +1,170 @@
+# Cross-compile Nova Player's Android native libraries on Linux.
+#
+# Produces, for each ABI:
+#   libmpv.so, libass.so, libav*.so  (mpv-android's buildscripts, pinned)
+#   libalass-cli.so                  (alass 2.0.0 via cargo-ndk, pinned)
+# plus native-libs.sha256, which the Gradle build verifies before packaging.
+#
+# Binaries are published to a GitHub Release and are NEVER committed to git --
+# that is what makes the GPL "corresponding source" offer clean: this workflow
+# plus its pins rebuilds exactly what users install.
+#
+# Costs ~40-90 min per ABI cold (prefix cache makes warm runs much faster).
+name: native-libs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release name to publish under (e.g. native-libs-2026-09-23). Leave empty to only upload a workflow artifact."
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "nova-player-android/scripts/build-native.sh"
+      - "nova-player-android/scripts/build-alass.sh"
+      - ".github/workflows/native-libs.yml"
+
+env:
+  # Pin these deliberately. Changing either one changes the binaries users get.
+  MPV_ANDROID_TAG: "2026-09-17" # mpv-android buildscripts snapshot (pins NDK r30, ffmpeg n9.0, ...)
+  MPV_TAG: "v0.41.0"            # matches the desktop's mpv 0.41
+  ALASS_TAG: "v2.0.0"
+  CARGO_NDK_VERSION: "3.5.1"
+
+jobs:
+  build:
+    name: ${{ matrix.abi }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf pkgconf libtool ninja-build python3-pip gperf nasm
+          sudo pip3 install --break-system-packages meson
+
+      - name: Install Rust + cargo-ndk
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.abi == 'arm64-v8a' && 'aarch64-linux-android' || 'x86_64-linux-android' }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            nova-player-android/.native-work/alass/target
+          key: cargo-alass-${{ env.ALASS_TAG }}-${{ matrix.abi }}
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version "${{ env.CARGO_NDK_VERSION }}" --locked
+
+      # The prefix cache is keyed on the pins above: any pin change invalidates
+      # every cached dependency build. Never let a stale prefix leak across pins.
+      - name: Cache native prefix
+        uses: actions/cache@v6
+        with:
+          path: |
+            nova-player-android/.native-work/mpv-android/buildscripts/prefix
+            nova-player-android/.native-work/mpv-android/buildscripts/deps
+            nova-player-android/.native-work/mpv-android/buildscripts/sdk
+          key: native-prefix-${{ matrix.abi }}-mpva-${{ env.MPV_ANDROID_TAG }}-mpv-${{ env.MPV_TAG }}
+
+      - name: Build libmpv + deps
+        env:
+          ABIS: ${{ matrix.abi }}
+          MPV_ANDROID_TAG: ${{ env.MPV_ANDROID_TAG }}
+          MPV_TAG: ${{ env.MPV_TAG }}
+        run: bash nova-player-android/scripts/build-native.sh
+
+      - name: Build alass
+        env:
+          ABIS: ${{ matrix.abi }}
+          ALASS_TAG: ${{ env.ALASS_TAG }}
+          ANDROID_NDK_ROOT: ${{ github.workspace }}/nova-player-android/.native-work/mpv-android/buildscripts/sdk/android-ndk-r30
+        run: bash nova-player-android/scripts/build-alass.sh
+
+      - name: Upload ABI bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-libs-${{ matrix.abi }}
+          # Two paths retain their common src/main root, including ABI folders.
+          path: |
+            nova-player-android/app/src/main/jniLibs/${{ matrix.abi }}/
+            nova-player-android/app/src/main/jni/include/
+          if-no-files-found: error
+
+      - name: Upload checksum manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-libs-sha256-${{ matrix.abi }}
+          path: nova-player-android/app/src/main/jniLibs/native-libs.sha256
+
+  publish:
+    name: Publish release
+    needs: build
+    if: github.event.inputs.version != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download all ABI bundles
+        uses: actions/download-artifact@v7
+        with:
+          path: bundles
+          merge-multiple: true
+
+      - name: Assemble release payload
+        run: |
+          set -euo pipefail
+          mkdir -p release/jniLibs
+          for abi in arm64-v8a x86_64; do
+            test -f "bundles/jniLibs/$abi/libmpv.so"
+            test -f "bundles/jniLibs/$abi/libalass-cli.so"
+            mkdir -p "release/jniLibs/$abi"
+            cp -av "bundles/jniLibs/$abi/." "release/jniLibs/$abi/"
+          done
+          test -f bundles/jni/include/mpv/client.h
+          cp -a bundles/jni/include release/include
+          (cd release/jniLibs && find . -name '*.so' | sort | xargs sha256sum > native-libs.sha256)
+          (cd release && tar -czf native-libs.tar.gz jniLibs include)
+          sha256sum release/native-libs.tar.gz | tee release/native-libs.tar.gz.sha256
+          cat release/jniLibs/native-libs.sha256
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Native libs ${{ github.event.inputs.version }}
+          prerelease: true
+          files: |
+            release/native-libs.tar.gz
+            release/native-libs.tar.gz.sha256
+          body: |
+            Cross-compiled Android native libraries for Nova Player.
+
+            | Pin | Value |
+            |---|---|
+            | mpv-android buildscripts | `${{ env.MPV_ANDROID_TAG }}` |
+            | mpv | `${{ env.MPV_TAG }}` |
+            | alass | `${{ env.ALASS_TAG }}` |
+            | ABIs | `arm64-v8a`, `x86_64` |
+
+            Rebuild this exactly with the `native-libs` workflow at these pins.
+            Verify against `native-libs.tar.gz.sha256` and the inner `native-libs.sha256`
+            before packaging.

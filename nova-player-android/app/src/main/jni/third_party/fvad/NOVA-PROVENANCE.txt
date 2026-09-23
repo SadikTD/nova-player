@@ -1,0 +1,1 @@
+libfvad v1.0; commit 99fd86bbb8093a8d0433db3da1d8959c1682adcc; https://github.com/dpirch/libfvad
