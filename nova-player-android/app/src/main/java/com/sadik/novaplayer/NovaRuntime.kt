@@ -10,7 +10,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 
-data class Track(val id: String, val type: String, val title: String, val detail: String, val selected: Boolean, val external: Boolean)
+data class Track(val id: String, val type: String, val title: String, val detail: String, val selected: Boolean, val external: Boolean, val file: String = "")
 data class Chapter(val title: String, val time: Double)
 data class Playing(
     val video: Video? = null, val position: Double = 0.0, val duration: Double = 0.0,
@@ -197,7 +197,15 @@ object NovaRuntime {
                 engine.setFlag("sub-visibility", state.value.subVisible)
                 engine.setDouble("sub-border-size", number("subBorder", 2.0))
                 engine.setStr("hwdec", if (pref("hwdec", true)) "mediacodec,mediacodec-copy" else "no")
-                if (video.externalSub.isNotBlank() && File(video.externalSub).isFile) { heal(File(video.externalSub)); runCatching { engine.command("sub-add", video.externalSub, "select") } }
+                // A fix made by an older, less accurate sync is not shown again: load the subtitle it
+                // was made from and sync that afresh (the badge shows "Syncing subtitles…").
+                var resync = false
+                if (SubtitleJobs.outdated(video.externalSub) && video.originalSub.isNotBlank() && File(video.originalSub).isFile) {
+                    forgetFix(video.externalSub)
+                    val updated = video.copy(externalSub = video.originalSub); store.update(updated); state.value = state.value.copy(video = updated); resync = true
+                }
+                val current = state.value.video ?: video
+                if (current.externalSub.isNotBlank() && File(current.externalSub).isFile) { heal(File(current.externalSub)); runCatching { engine.command("sub-add", current.externalSub, "select") } }
                 fitSubFont()
                 if (requestedStart > 0) {
                     command("seek", requestedStart.toString(), "absolute+exact")
@@ -212,7 +220,9 @@ object NovaRuntime {
                     delay(1800) // desktop: give embedded tracks time to appear before deciding a video "has no subtitles"
                     if (token != generation) return@launch
                     state.value = state.value.copy(tracks = tracks()); fitSubFont()
-                    if (pref("autoSubs", true) && pref("onlineSubs", true) && state.value.tracks.none { it.type == "sub" } && !video.uri.startsWith("http")) {
+                    if (resync) SubtitleJobs.start(text("subSyncMode", "smart"))
+                    // Videos whose subtitles were removed stay without until the user picks one.
+                    else if (pref("autoSubs", true) && pref("onlineSubs", true) && state.value.tracks.none { it.type == "sub" } && !video.uri.startsWith("http") && !optedOut(video.uri)) {
                         notice.value = "Looking for subtitles…"
                         runCatching {
                             val results = withContext(Dispatchers.IO) { OnlineSubtitles.search(video, "", text("subLangs", "eng").split(',')) }
@@ -334,9 +344,9 @@ object NovaRuntime {
         val detail = listOfNotNull(codec,
             engine.getLong("$base/demux-channel-count").takeIf { type == "audio" && it > 0 }?.let { when (it) { 1L -> "Mono"; 2L -> "Stereo"; 6L -> "5.1"; 8L -> "7.1"; else -> "$it ch" } },
             engine.getLong("$base/demux-h").takeIf { type == "video" && it > 0 }?.let { "${it}p" },
-            "External".takeIf { engine.getFlag("$base/external") }, "Default".takeIf { engine.getFlag("$base/default") }, "Forced".takeIf { engine.getFlag("$base/forced") }).joinToString(" · ")
+            engine.getStr("$base/external-filename")?.let { if (SubtitleJobs.isFix(it)) "Synced to the dialogue" else "Added" }, "Default".takeIf { engine.getFlag("$base/default") }, "Forced".takeIf { engine.getFlag("$base/forced") }).joinToString(" · ")
         Track(engine.getStr("$base/id") ?: "$i", type, listOfNotNull(title, lang).joinToString(" · ").ifBlank { "Track ${engine.getStr("$base/id") ?: i}" }, detail,
-            engine.getFlag("$base/selected"), engine.getFlag("$base/external"))
+            engine.getFlag("$base/selected"), engine.getFlag("$base/external"), engine.getStr("$base/external-filename").orEmpty())
     }
     fun chapters() = (0 until engine.getLong("chapter-list/count").toInt()).map { Chapter(engine.getStr("chapter-list/$it/title") ?: "Chapter ${it + 1}", engine.getDouble("chapter-list/$it/time")) }
     fun selectTrack(type: String, id: String) { engine.setStr(if (type == "audio") "aid" else "sid", id); state.value = state.value.copy(tracks = tracks()); if (type == "sub") fitSubFont() }
@@ -384,11 +394,101 @@ object NovaRuntime {
         val ok = (0 until n).any { engine.getStr("track-list/$it/type") == "sub" && engine.getStr("track-list/$it/external-filename") == file.path }
         if (!ok) { state.value = state.value.copy(tracks = tracks()); return false }
         engine.setFlag("sub-visibility", true); state.value = state.value.copy(subVisible = true)
+        if (original) setOptOut(video.uri, false)
         val updated = (store.videos.value.find { it.uri == video.uri } ?: video).copy(externalSub = file.path, originalSub = if (original) file.path else video.originalSub)
         store.update(updated); state.value = state.value.copy(video = updated, tracks = tracks()); fitSubFont()
         return true
     }
-    fun restoreSubtitle() { val path = state.value.video?.originalSub ?: return; if (path.isNotBlank()) notice.value = if (attachSubtitle(File(path), false)) "Original subtitle restored" else "The original subtitle file is missing" }
+    private fun optedOut(uri: String) = uri in store.prefs.getStringSet("subOptOut", emptySet())!!
+    private fun setOptOut(uri: String, on: Boolean) {
+        val set = store.prefs.getStringSet("subOptOut", emptySet())!!.toMutableSet()
+        if (if (on) set.add(uri) else set.remove(uri)) store.prefs.edit().putStringSet("subOptOut", set).apply()
+    }
+    /** Only Nova's own copies (downloads, opened files, fixes) are ever deleted — never files elsewhere. */
+    private fun ownSubtitle(path: String) = path.isNotBlank() && runCatching { File(path).canonicalPath.startsWith(File(app.filesDir, "subtitles").canonicalPath + File.separator) }.getOrDefault(false)
+    private fun deleteOwn(path: String) {
+        if (!ownSubtitle(path)) return
+        val file = File(path)
+        for (f in listOf(file, File("$path.approved"), File("$path.version"))) f.delete()
+        val dir = file.parentFile ?: return
+        if (dir.name.startsWith("sync-")) File(dir, "source.txt").delete()
+        if (dir.list()?.isEmpty() == true) dir.delete()
+    }
+    private fun forgetFix(path: String) { if (SubtitleJobs.isFix(path)) deleteOwn(path) }
+    /** Fixes made from [source] (or, with [video], every fix made for that video). */
+    private fun fixesFor(source: String? = null, video: String? = null): List<String> =
+        File(app.filesDir, "subtitles").listFiles { f -> f.isDirectory && f.name.startsWith("sync-") }.orEmpty().flatMap { dir ->
+            val (from, forVideo) = runCatching { File(dir, "source.txt").readLines() }.getOrNull()?.let { it.getOrNull(0).orEmpty() to it.getOrNull(1).orEmpty() } ?: return@flatMap emptyList()
+            if ((source != null && from == source) || (video != null && forVideo == video)) dir.listFiles { f -> f.extension.lowercase() in setOf("srt", "ass", "ssa") }.orEmpty().map { it.path } else emptyList()
+        }
+    private fun externalTracks() = (0 until engine.getLong("track-list/count").toInt()).mapNotNull { i ->
+        if (engine.getStr("track-list/$i/type") != "sub") null else engine.getStr("track-list/$i/external-filename")?.let { engine.getStr("track-list/$i/id").orEmpty() to it }
+    }
+
+    /**
+     * Desktop "remove this subtitle". A sync fix just goes away and the original timing comes
+     * back. A subtitle Nova downloaded or copied is deleted with every fix made from it; when
+     * nothing is left, Nova stops fetching subtitles for this video until you pick one.
+     */
+    fun removeSubtitle(path: String) {
+        val video = state.value.video ?: return
+        if (SubtitleJobs.state.value.running) SubtitleJobs.cancel()
+        if (SubtitleJobs.isFix(path)) {
+            externalTracks().filter { it.second == path }.forEach { runCatching { engine.command("sub-remove", it.first) } }
+            forgetFix(path)
+            engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
+            val original = video.originalSub
+            val back = original.isNotBlank() && File(original).isFile && showOriginal(original)
+            if (!back) { val updated = video.copy(externalSub = ""); store.update(updated); state.value = state.value.copy(video = updated) }
+            SubtitleJobs.reset()
+            state.value = state.value.copy(tracks = tracks())
+            notice.value = if (back) "Sync fix removed. Showing the original timing." else "Sync fix removed."
+            return
+        }
+        val gone = fixesFor(source = path) + path
+        externalTracks().filter { it.second in gone }.forEach { runCatching { engine.command("sub-remove", it.first) } }
+        gone.forEach(::deleteOwn)
+        val left = externalTracks()
+        val fresh = (store.videos.value.find { it.uri == video.uri } ?: video).let { v ->
+            v.copy(externalSub = if (v.externalSub in gone) left.lastOrNull()?.second.orEmpty() else v.externalSub, originalSub = if (v.originalSub in gone) "" else v.originalSub)
+        }
+        store.update(fresh); state.value = state.value.copy(video = fresh, tracks = tracks())
+        if (left.isEmpty()) { setOptOut(video.uri, true); SubtitleJobs.reset() }
+        notice.value = if (ownSubtitle(path)) "Subtitle removed" else "Subtitle unloaded"
+    }
+
+    /** Desktop "Remove all added subtitles…": the video goes back to exactly how it was. */
+    fun removeAllSubtitles() {
+        val video = state.value.video ?: return
+        SubtitleJobs.reset()
+        val stored = store.videos.value.find { it.uri == video.uri } ?: video
+        val files = (externalTracks().map { it.second } + listOf(stored.externalSub, stored.originalSub) + fixesFor(video = video.uri))
+            .filter { it.isNotBlank() }.toSet()
+        externalTracks().forEach { runCatching { engine.command("sub-remove", it.first) } }
+        files.forEach(::deleteOwn)
+        // Downloads for this video that were never loaded (e.g. an earlier pick).
+        File(app.filesDir, "subtitles").listFiles { f -> f.isDirectory && f.name.startsWith(stableId(video.uri) + "-") }.orEmpty().forEach { it.deleteRecursively() }
+        engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
+        setOptOut(video.uri, true)
+        val fresh = stored.copy(externalSub = "", originalSub = "")
+        store.update(fresh); state.value = state.value.copy(video = fresh, tracks = tracks())
+        notice.value = "Subtitles removed. This video is back to how it was."
+    }
+    /** Select [original] again (it is usually still loaded; adding it twice lists it twice). */
+    private fun showOriginal(original: String): Boolean {
+        val video = state.value.video ?: return false
+        val loaded = externalTracks().firstOrNull { it.second == original } ?: return attachSubtitle(File(original), false)
+        selectTrack("sub", loaded.first)
+        val updated = (store.videos.value.find { it.uri == video.uri } ?: video).copy(externalSub = original)
+        store.update(updated); state.value = state.value.copy(video = updated)
+        return true
+    }
+    fun restoreSubtitle() {
+        val path = state.value.video?.originalSub ?: return
+        if (path.isBlank()) return
+        engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
+        notice.value = if (File(path).isFile && showOriginal(path)) "Original timing restored" else "The original subtitle file is missing"
+    }
     fun sleep(minutes: Int) {
         state.value = state.value.copy(sleepAt = if (minutes > 0) System.currentTimeMillis() + minutes * 60_000L else 0L, sleepEnd = minutes == -1)
         notice.value = when (minutes) { 0 -> "Sleep timer off"; -1 -> "Stopping at the end of this video"; else -> "Sleeping in $minutes minutes" }

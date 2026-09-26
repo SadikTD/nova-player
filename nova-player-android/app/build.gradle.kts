@@ -19,8 +19,8 @@ android {
         applicationId = "com.sadik.novaplayer"
         targetSdk = 36
         minSdk = 23
-        versionCode = 5
-        versionName = "1.2.0"
+        versionCode = 6
+        versionName = "1.2.1"
         manifestPlaceholders["appLabel"] = "Nova Player"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "com.sadik.novaplayer.NativeAnalysisTest"

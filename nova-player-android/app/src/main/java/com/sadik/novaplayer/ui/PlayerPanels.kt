@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "subs" to "Subtitles", "online" to "Find subtitles", "sync" to "Auto-sync subtitles",
+private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "subs" to "Subtitles", "online" to "Find subtitles", "sync" to "Subtitle sync",
     "video" to "Display", "queue" to "Up next", "chapters" to "Chapters", "sleep" to "Sleep timer", "info" to "Media info", "more" to "More")
 
 @Composable fun PlayerPanel(panel: String, landscape: Boolean, s: Playing, activity: MainActivity, setPanel0: (String) -> Unit) {
@@ -64,7 +64,7 @@ private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "sub
                                 "audio" -> AudioPanel(s)
                                 "subs" -> SubtitlePanel(s, activity, setPanel)
                                 "online" -> OnlinePanel(s)
-                                "sync" -> SyncPanel(activity)
+                                "sync" -> SyncPanel(activity, setPanel)
                                 "video" -> VideoPanel(activity)
                                 "queue" -> QueuePanel(s, setPanel)
                                 "chapters" -> ChaptersPanel(s, setPanel)
@@ -131,16 +131,59 @@ private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "sub
     }
 }
 
-@Composable private fun TrackRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
+/**
+ * Subtitle tracks, with desktop's remove controls: a bin on every subtitle that was added (a sync
+ * fix just goes back to the original timing), and "Remove all added subtitles…" to put the video
+ * back exactly as it was. Subtitles built into the video can't be removed.
+ */
+@Composable private fun SubtitleTracks(s: Playing) {
+    var confirm by remember { mutableStateOf<Track?>(null) }
+    var confirmAll by remember { mutableStateOf(false) }
+    val rows = s.tracks.filter { it.type == "sub" }
+    if (rows.isEmpty()) Text("This video has no subtitles yet.", color = Nova.Dim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (rows.isNotEmpty()) TrackRow("Off", "Hide subtitles", rows.none { it.selected }) { NovaRuntime.selectTrack("sub", "no") }
+        rows.forEach { t ->
+            TrackRow(t.title, t.detail, t.selected, trailing = if (t.file.isBlank()) null else ({
+                IconButton({ if (SubtitleJobs.isFix(t.file)) NovaRuntime.removeSubtitle(t.file) else confirm = t }, Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.DeleteOutline, "Remove ${t.title}", tint = Nova.Dim, modifier = Modifier.size(20.dp))
+                }
+            })) { NovaRuntime.selectTrack("sub", t.id) }
+        }
+    }
+    if (rows.any { it.file.isNotBlank() }) Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(14.dp)).clickable { confirmAll = true }.padding(horizontal = 6.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.DeleteSweep, null, tint = Color(0xFFF87171))
+        Column(Modifier.padding(start = 12.dp)) {
+            Text("Remove all added subtitles…", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFFF87171))
+            Text("Deletes downloads and sync fixes for this video", color = Nova.Dim, fontSize = 12.sp)
+        }
+    }
+    confirm?.let { t ->
+        AlertDialog({ confirm = null }, containerColor = Nova.Bg3, shape = RoundedCornerShape(26.dp),
+            title = { Text("Remove “${t.title}”?") },
+            text = { Text("Nova’s copy of this subtitle and any sync fixes made from it will be deleted. Files elsewhere on your phone are not touched.") },
+            confirmButton = { TextButton({ NovaRuntime.removeSubtitle(t.file); confirm = null }) { Text("Remove", color = Color(0xFFF87171)) } },
+            dismissButton = { TextButton({ confirm = null }) { Text("Cancel") } })
+    }
+    if (confirmAll) AlertDialog({ confirmAll = false }, containerColor = Nova.Bg3, shape = RoundedCornerShape(26.dp),
+        title = { Text("Remove subtitles for this video?") },
+        text = { Text("The subtitles Nova downloaded or added, and every sync fix, will be deleted. Subtitles built into the video are not affected. Nova won’t download subtitles for this video again unless you choose one.") },
+        confirmButton = { TextButton({ NovaRuntime.removeAllSubtitles(); confirmAll = false }) { Text("Remove all", color = Color(0xFFF87171)) } },
+        dismissButton = { TextButton({ confirmAll = false }) { Text("Cancel") } })
+}
+
+@Composable private fun TrackRow(title: String, detail: String, selected: Boolean, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val accent = LocalAccent.current
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (selected) accent.soft2 else Color.White.copy(alpha = .04f))
         .border(1.dp, if (selected) accent.line else Color.Transparent, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, null, tint = if (selected) accent.light else Nova.Dim, modifier = Modifier.size(20.dp))
-        Column(Modifier.padding(start = 12.dp)) {
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
             Text(title, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (detail.isNotBlank()) Text(detail, color = Nova.Dim, fontSize = 12.sp, maxLines = 1)
         }
+        trailing?.invoke()
     }
 }
 
@@ -175,9 +218,9 @@ private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "sub
     val accent = LocalAccent.current
     PanelRow(Icons.Rounded.TravelExplore, "Find subtitles online", chevron = true) { setPanel("online") }
     PanelRow(Icons.Rounded.FolderOpen, "Open a subtitle file", chevron = true) { activity.subtitle() }
-    PanelRow(Icons.Rounded.GraphicEq, "Auto-sync to the dialogue", chevron = true) { setPanel("sync") }
+    PanelRow(Icons.Rounded.GraphicEq, "Sync to the dialogue", chevron = true) { setPanel("sync") }
     Label("Tracks")
-    Tracks(s, "sub")
+    SubtitleTracks(s)
     Label("Timing")
     TimingCard("sub-delay", "Early", "Late")
     Label("Speed correction")
@@ -273,34 +316,89 @@ private val TITLES = mapOf("speed" to "Playback speed", "audio" to "Audio", "sub
     }
 }
 
-@Composable private fun SyncPanel(activity: MainActivity) {
+/** Desktop's sync sheet: one status card in plain words, then the method and the other ways to fix timing. */
+@Composable private fun SyncPanel(activity: MainActivity, setPanel: (String) -> Unit) {
     val state by SubtitleJobs.state.collectAsState()
-    var mode by remember { mutableStateOf(NovaRuntime.text("subSyncMode", "smart")) }
+    val s by NovaRuntime.state.collectAsState()
+    var mode by remember { mutableStateOf(state.mode.takeIf { !state.running && it.isNotBlank() } ?: NovaRuntime.text("subSyncMode", "smart")) }
     val accent = LocalAccent.current
-    Text("Nova listens to the dialogue on your phone and lines up an external SRT or ASS subtitle with it. Your original file is kept.", color = Nova.Dim, fontSize = 13.sp, lineHeight = 19.sp)
-    Label("Mode")
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf("smart" to "Smart · fixes drift and cuts", "gentle" to "Gentle · fewer changes", "offset" to "Offset only · one shift for the whole file").forEach { (k, d) ->
-            TrackRow(d.substringBefore(" ·"), d.substringAfter("· "), mode == k) { mode = k; NovaRuntime.setPref("subSyncMode", k) }
+    val mine = state.video == s.video?.uri
+    val status = if (mine) state.status else "idle"
+    val used = state.mode.ifBlank { mode }
+    val order = listOf("smart", "gentle", "offset")
+    val other = order[(order.indexOf(used).coerceAtLeast(0) + 1) % order.size]
+    val showingFix = SubtitleJobs.isFix(s.video?.externalSub.orEmpty()) && s.tracks.any { it.type == "sub" && it.selected && it.file == s.video?.externalSub }
+    val (tone, title) = when {
+        state.running && mine -> accent.light to "Syncing subtitles…"
+        status == "applied" || (status == "idle" && showingFix) -> Color(0xFF34D399) to "Subtitles are synced"
+        status == "review" -> Nova.Boost to "Check this fix"
+        status == "error" -> Color(0xFFF87171) to "Couldn’t sync these subtitles"
+        status == "restored" -> Nova.Dim to "Original timing restored"
+        status == "cancelled" -> Nova.Dim to "Sync stopped"
+        else -> Nova.Dim to "Subtitles out of sync?"
+    }
+    val text = when {
+        state.running && mine -> state.message
+        status == "applied" || (status == "idle" && showingFix) -> "If a line still looks off, try another method or undo."
+        status in setOf("review", "error", "restored", "cancelled") -> state.message
+        else -> "Nova listens to the dialogue and moves each subtitle to match. It takes about a minute, and you can keep watching."
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(tone.copy(alpha = .10f)).border(1.dp, tone.copy(alpha = .35f), RoundedCornerShape(18.dp)).padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(tone.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+                if (state.running && mine) Equalizer(true, tone) else Icon(when (title) {
+                    "Subtitles are synced" -> Icons.Rounded.Check; "Check this fix", "Couldn’t sync these subtitles" -> Icons.Rounded.ErrorOutline
+                    "Original timing restored" -> Icons.Rounded.Undo; else -> Icons.Rounded.GraphicEq }, null, tint = tone)
+            }
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.padding(start = 12.dp))
+        }
+        if (text.isNotBlank()) Text(text, color = Nova.Dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 10.dp))
+        if (state.running && mine) {
+            Spacer(Modifier.height(10.dp))
+            FlowPills { Pill("1 · Listen to the dialogue", true) {}; Pill("2 · Line up the subtitles", state.status == "aligning") {} }
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp).clip(CircleShape), color = accent.light)
+        } else if (mine && status in setOf("applied", "review")) {
+            Spacer(Modifier.height(10.dp))
+            FlowPills { Pill(SubtitleJobs.shiftText(state.shift), false) {}; Pill(SubtitleJobs.methodName(used), false) {} }
         }
     }
-    Spacer(Modifier.height(16.dp))
-    AnimatedContent(state.running, label = "sync") { running ->
-        if (running) Card {
-            Row(verticalAlignment = Alignment.CenterVertically) { Equalizer(true); Text(state.message, Modifier.padding(start = 12.dp).weight(1f), fontSize = 14.sp) }
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp).clip(CircleShape), color = accent.light)
-            GhostButton("Cancel", Icons.Rounded.Close, Modifier.fillMaxWidth()) { SubtitleJobs.cancel() }
-        } else Column {
-            GradientButton("Sync to the audio", Icons.Rounded.GraphicEq, Modifier.fillMaxWidth()) { SubtitleJobs.start(mode, manual = true) }
-            Spacer(Modifier.height(8.dp))
-            GhostButton("Use a correctly timed subtitle", Icons.Rounded.Description, Modifier.fillMaxWidth()) { activity.syncReference() }
+    Spacer(Modifier.height(10.dp))
+    when {
+        state.running && mine -> GhostButton("Stop", Icons.Rounded.Close, Modifier.fillMaxWidth()) { SubtitleJobs.cancel() }
+        status == "review" && state.result != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GradientButton("Try it", Icons.Rounded.Check, Modifier.weight(1f)) { SubtitleJobs.apply() }
+            GhostButton("Keep original", null, Modifier.weight(1f)) { SubtitleJobs.dismiss() }
         }
+        status == "applied" || (status == "idle" && showingFix) -> GhostButton("Undo", Icons.Rounded.Undo, Modifier.fillMaxWidth()) { SubtitleJobs.undo() }
+        else -> GradientButton(if (status == "error") "Try again" else "Sync subtitles", Icons.Rounded.GraphicEq, Modifier.fillMaxWidth()) { SubtitleJobs.start(mode, manual = true) }
     }
-    if (!state.running && state.message.isNotBlank()) Card(Modifier.padding(top = 14.dp)) {
-        Text(state.message, fontSize = 13.sp, lineHeight = 19.sp)
-        if (state.result != null) GradientButton("Apply correction", Icons.Rounded.Check, Modifier.fillMaxWidth().padding(top = 12.dp)) { SubtitleJobs.apply() }
+    if (!state.running && mine && status in setOf("applied", "review", "error")) Row(Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = .04f)).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Still not right?", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("Try the ${SubtitleJobs.methodName(other)} method instead.", color = Nova.Dim, fontSize = 12.sp)
+        }
+        TextButton({ mode = other; NovaRuntime.setPref("subSyncMode", other); SubtitleJobs.start(other, manual = true) }) { Text("Try ${SubtitleJobs.methodName(other)}", color = accent.light) }
     }
-    if (NovaRuntime.state.value.video?.originalSub?.isNotBlank() == true) TextButton({ NovaRuntime.restoreSubtitle() }, Modifier.padding(top = 8.dp)) { Icon(Icons.Rounded.Undo, null); Text("  Restore the original subtitle") }
+    Label("Method")
+    FlowPills { order.forEach { m -> Pill(SubtitleJobs.methodName(m), mode == m) { if (!state.running) { mode = m; NovaRuntime.setPref("subSyncMode", m) } } } }
+    Text(SubtitleJobs.methodHelp(mode), color = Nova.Dim, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp))
+    Label("Other ways to fix timing")
+    WayRow(Icons.Rounded.Description, "Match another subtitle file", "Copy the timing from a subtitle you know is in sync.") { if (!state.running) activity.syncReference() }
+    WayRow(Icons.Rounded.Tune, "Adjust by hand", "Nudge subtitles earlier or later yourself.") { setPanel("subs") }
+    Text("Runs on your phone. Your subtitle file is never changed.", color = Nova.Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 14.dp))
+}
+
+@Composable private fun WayRow(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {
+    val tint = LocalAccent.current.light
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = .14f)), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(20.dp), tint = tint) }
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(detail, color = Nova.Dim, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Nova.Dim)
+    }
 }
 
 /* ------------------------------------------------------------------ display */

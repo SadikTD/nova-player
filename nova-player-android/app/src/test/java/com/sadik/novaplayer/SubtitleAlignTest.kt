@@ -3,24 +3,35 @@ import org.junit.Assert.*
 import org.junit.Test
 import com.sadik.novaplayer.core.SubtitleTiming
 class SubtitleAlignTest {
-    @Test fun findsKnownOffsetWithoutChangingDialogue(){val ref=(0..40).map{SubtitleTiming.Cue(it*7.3+20,it*7.3+22.1,"Line $it")};val late=ref.map{it.copy(start=it.start+4.2,end=it.end+4.2)};val result=SubtitleAlign.align(late,ref,"offset");assertEquals(ref[20].start,result[20].start,.15);assertEquals(late.map{it.text},result.map{it.text})}
+    @Test fun findsKnownOffsetWithoutChangingDialogue(){val ref=(0..40).map{SubtitleTiming.Cue(it*7.3+20,it*7.3+22.1,"Line $it")};val late=ref.map{it.copy(start=it.start+4.2,end=it.end+4.2)};val result=SubtitleAlign.align(late,ref,"offset");assertEquals(ref[20].start-SubtitleAlign.LEAD,result[20].start,.15);assertEquals(late.map{it.text},result.map{it.text})}
     @Test fun preservesAssStyleAndCommas(){val input="[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,,Hello, world";val cues=SubtitleTiming.cues(input,".ass").map{it.copy(start=it.start+2,end=it.end+2)};val result=SubtitleAlign.rewrite(input,"ass",cues);assertTrue(result.contains("0:00:12.00,0:00:14.00,Default,,0,0,0,,Hello, world"))}
-    /** 40 minutes of speech-like intervals; the subtitle is the same lines, so the truth is known. */
+    /** 40 minutes of speech-like intervals. */
     private fun dialogue(seed:Int)=java.util.Random(seed.toLong()).let{r->var t=3.0;List(700){i->val s=t+.3+r.nextDouble()*4;val e=s+.6+r.nextDouble()*3;t=e;SubtitleTiming.Cue(s,e,"Line $i")}}
+    /** Correctly timed subtitles for [speech]: studio style, up just before the voice and lingering. */
+    private fun timed(speech:List<SubtitleTiming.Cue>)=speech.map{it.copy(start=it.start-SubtitleAlign.LEAD,end=it.end+.3)}
     private fun within(result:List<SubtitleTiming.Cue>,truth:List<SubtitleTiming.Cue>,limit:Double)=result.indices.count{kotlin.math.abs(result[it].start-truth[it].start)<=limit}.toDouble()/truth.size
 
     @Test fun fixesFrameRateDriftAndAdBreakJump(){
         val speech=dialogue(1)
         // Made for 25 fps, then 1.5 s late from the middle on (an ad break cut differently).
-        val sub=speech.mapIndexed{i,c->val f=25/23.976;val late=if(i>=350)1.5 else 0.0;c.copy(start=c.start*f+late,end=c.end*f+late)}
+        val truth=timed(speech)
+        val sub=truth.mapIndexed{i,c->val f=25/23.976;val late=if(i>=350)1.5 else 0.0;c.copy(start=c.start*f+late,end=c.end*f+late)}
         val fit=SubtitleAlign.fit(sub,speech,"smart")
         assertTrue("confidence ${fit.confidence}",fit.confidence>=SubtitleAlign.CONFIDENT)
-        assertTrue(within(fit.cues,speech,.15)>.95)
+        assertTrue(within(fit.cues,truth,.15)>.95)
         assertEquals(sub.map{it.text},fit.cues.map{it.text})
     }
     @Test fun leavesSyncedSubtitleAlone(){
         val speech=dialogue(2)
-        for(mode in listOf("smart","gentle","offset"))assertEquals(mode,1.0,within(SubtitleAlign.align(speech,speech,mode),speech,.051),0.0)
+        val sub=timed(speech)
+        for(mode in listOf("smart","gentle","offset"))assertEquals(mode,1.0,within(SubtitleAlign.align(sub,speech,mode),sub,.051),0.0)
+    }
+    /** "Match another subtitle file": the reference's own timing is the target, with no lead added. */
+    @Test fun copiesTimingFromReferenceSubtitleExactly(){
+        val reference=timed(dialogue(5))
+        val late=reference.map{it.copy(start=it.start+2.7,end=it.end+2.7)}
+        val result=SubtitleAlign.fit(late,reference,"smart",lead=0.0).cues
+        assertEquals(1.0,within(result,reference,.051),0.0)
     }
     @Test fun subtitleForOtherAudioIsNotTrusted(){
         for(mode in listOf("smart","offset"))assertTrue(mode,SubtitleAlign.fit(dialogue(3),dialogue(4),mode).confidence<SubtitleAlign.CONFIDENT)

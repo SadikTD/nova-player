@@ -25,6 +25,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
+import com.sadik.novaplayer.SubtitleJobs
 import com.sadik.novaplayer.BuildConfig
 import com.sadik.novaplayer.MainActivity
 import com.sadik.novaplayer.NovaRuntime
@@ -96,12 +97,12 @@ val LANGUAGES = listOf(
         item {
             Group("Automatic sync", Icons.Rounded.GraphicEq) {
                 Text("Nova listens to the dialogue on your phone and lines the subtitles up with it. Nothing is uploaded.", color = Nova.Dim, fontSize = 13.sp, lineHeight = 19.sp)
-                Choice("Mode", listOf(0.0, 1.0, 2.0), listOf("smart", "gentle", "offset").indexOf(NovaRuntime.text("subSyncMode", "smart").also { tick }).toDouble(),
-                    { listOf("Smart", "Gentle", "Offset only")[it.toInt()] }) { NovaRuntime.setPref("subSyncMode", listOf("smart", "gentle", "offset")[it.toInt()]); tick++ }
-                Toggle("Sync new downloads", "Unless it is an exact file match", "subSyncDownloads", false)
-                Toggle("Sync local subtitles on open", "Checks external SRT/ASS files", "subSyncLocal", false)
-                Toggle("Apply background syncs automatically", "Syncs you start are always applied when confident; uncertain ones ask first", "subSyncAutoApply", true)
-                Toggle("Reuse approved corrections", "Remember fixes for each video", "subSyncReuse", true)
+                Choice("Method", listOf(0.0, 1.0, 2.0), listOf("smart", "gentle", "offset").indexOf(NovaRuntime.text("subSyncMode", "smart").also { tick }).toDouble(),
+                    { SubtitleJobs.methodName(listOf("smart", "gentle", "offset")[it.toInt()]) }) { NovaRuntime.setPref("subSyncMode", listOf("smart", "gentle", "offset")[it.toInt()]); tick++ }
+                Toggle("Sync subtitles Nova downloads", "Skipped when the subtitle was made for this exact file", "subSyncDownloads", false)
+                Toggle("Sync your own subtitle files", "Each time a video opens with one", "subSyncLocal", false)
+                Toggle("Use a fix as soon as it’s ready", "If Nova isn’t sure about one, it asks first", "subSyncAutoApply", true)
+                Toggle("Remember fixes", "Use the same fix next time you watch", "subSyncReuse", true)
             }
         }
         item {

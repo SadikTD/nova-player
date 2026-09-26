@@ -251,14 +251,16 @@ fun chapterAt(s: Playing, t: Double): String? = s.chapters.lastOrNull { it.time 
 
 /**
  * Desktop parity: "Syncing subtitles…" while the job runs, "Subtitles synced" while the corrected
- * file is the one on screen, "Review subtitle sync" when a result waits for you. Tap opens the sync panel.
+ * file is the one on screen, "Check subtitle sync" when a result waits for you, "Subtitle sync failed"
+ * after an error. Tap opens the sync panel.
  */
 @Composable private fun SyncBadge(s: Playing, sync: SyncState, onClick: () -> Unit) {
     val mine = sync.video == s.video?.uri
     val synced = s.video?.externalSub?.let { "/sync-" in it } == true && s.tracks.any { it.type == "sub" && it.selected && it.external }
     val (text, color) = when {
         mine && sync.running -> "Syncing subtitles…" to LocalAccent.current.light
-        mine && sync.result != null -> "Review subtitle sync" to Nova.Boost
+        mine && sync.result != null -> "Check subtitle sync" to Nova.Boost
+        mine && sync.status == "error" -> "Subtitle sync failed" to Color(0xFFF87171)
         synced -> "Subtitles synced" to Color(0xFF34D399)
         else -> return
     }

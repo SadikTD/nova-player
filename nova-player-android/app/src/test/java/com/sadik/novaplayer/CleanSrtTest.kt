@@ -40,3 +40,16 @@ class SrtRepairTest {
         assertEquals(null, healSrtBytes("1\n00:00:01,000 --> 00:00:02,000\nOk\n".toByteArray()))
     }
 }
+
+class SyncEncodingTest {
+    /** A cp1252 subtitle ("café", "naïve") must come out of a sync with every byte but the timings intact. */
+    @org.junit.Test fun keepsNonUtf8TextByteForByte() {
+        val raw = "1\r\n00:00:01,000 --> 00:00:02,000\r\nCaf\u00e9 na\u00efve\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\n\u00c0 bient\u00f4t\r\n".toByteArray(charset("windows-1252"))
+        val file = java.io.File.createTempFile("cp1252", ".srt").apply { writeBytes(raw); deleteOnExit() }
+        val (text, charset) = SubtitleJobs.readSubtitle(file)
+        val cues = com.sadik.novaplayer.core.SubtitleTiming.cues(text).map { it.copy(start = it.start + 1, end = it.end + 1) }
+        val out = SubtitleAlign.rewrite(text, "srt", cues).toByteArray(charset)
+        org.junit.Assert.assertArrayEquals(String(raw, Charsets.ISO_8859_1).replace("00:00:01,000 --> 00:00:02,000", "00:00:02,000 --> 00:00:03,000")
+            .replace("00:00:03,000 --> 00:00:04,000", "00:00:04,000 --> 00:00:05,000").toByteArray(Charsets.ISO_8859_1), out)
+    }
+}

@@ -15,8 +15,12 @@ import kotlin.math.abs
  */
 class SyncBenchTest {
     private val totals = sortedMapOf<String, IntArray>()
+    private val leads = sortedMapOf<String, LeadMetric.Totals>()
     @Test fun bench() {
         val dir = System.getenv("NOVA_SYNC_BENCH")?.let(::File)
+        System.getenv("NOVA_SYNC_WINDOW")?.let { SubtitleAlign.localWindow = it.toDouble() }
+        System.getenv("NOVA_SYNC_ONSET")?.let { SubtitleAlign.onsetWeight = it.toDouble() }
+        System.getenv("NOVA_SYNC_LEAD")?.let { SubtitleAlign.LEAD = it.toDouble() }
         assumeTrue(dir?.isDirectory == true)
         val modes = (System.getenv("NOVA_SYNC_MODES") ?: "offset,gentle,smart").split(',')
         val kind = System.getenv("NOVA_SYNC_SPEECH") ?: "speech"
@@ -48,6 +52,7 @@ class SyncBenchTest {
                     val after = SubtitleAlign.align(before, speech, mode, splitPenalty = p, jumpCost = l)
                     val ms = (System.nanoTime() - t0) / 1_000_000
                     val a = SubtitleTiming.assess(before, after, speech)
+                    if (label == "orig") LeadMetric.add(leads.getOrPut(mode) { LeadMetric.Totals() }, after, speech)
                     totals.getOrPut("$label ${mode.take(3)}$p/$l") { IntArray(4) }.let { t -> after.indices.forEach { i -> val e = abs(after[i].start - truth[i].start); t[0]++; if (e <= .3) t[1]++; if (e <= .6) t[2]++; if (e > 1.5) t[3]++ } }
                     if (System.getenv("NOVA_SYNC_TRACE") != null && label == "orig") println("   trace $name $mode$p/$l: " + after.indices.chunked(40).joinToString(" ") { c -> "%.0f:%+.2f".format(truth[c[0]].start / 60, c.map { after[it].start - truth[it].start }.sorted()[c.size / 2]) })
                     line.append(" | ${mode.take(3)}${if (penalties != null && mode != "offset") "$p/$l" else ""} ${stats(after, truth)} ${a.before}→${a.after}%${if (a.reliable) "" else "?"} ${ms}ms")
@@ -57,7 +62,7 @@ class SyncBenchTest {
         }
     }
 
-    @org.junit.After fun summary() = totals.forEach { (k, t) -> println("TOTAL %-26s ≤.3s %3d%%  ≤.6s %3d%%  >1.5s %3d%%".format(k, t[1] * 100 / t[0], t[2] * 100 / t[0], t[3] * 100 / t[0])) }
+    @org.junit.After fun summary() = leads.forEach { (k, v) -> println("LEAD mentalist %-8s ".format(k) + v) }.also { totals.forEach { (k, t) -> println("TOTAL %-26s ≤.3s %3d%%  ≤.6s %3d%%  >1.5s %3d%%".format(k, t[1] * 100 / t[0], t[2] * 100 / t[0], t[3] * 100 / t[0])) } }
 
     private fun stats(cues: List<Cue>, truth: List<Cue>): String {
         if (cues.size != truth.size) return "count ${cues.size}≠${truth.size}"
