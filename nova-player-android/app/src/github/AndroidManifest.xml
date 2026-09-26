@@ -2,4 +2,6 @@
 <!-- GitHub build only: lets Nova install its own updates (see Updater.kt). Not in the Play build. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Wi-Fi or mobile data? Updates only download on unmetered networks. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>

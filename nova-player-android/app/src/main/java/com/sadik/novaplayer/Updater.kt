@@ -27,7 +27,8 @@ import java.security.MessageDigest
  */
 object Updater {
     private const val RELEASES = "https://api.github.com/repos/SadikTD/nova-player/releases?per_page=30"
-    private const val EVERY = 6 * 60 * 60 * 1000L
+    /** Checked each time Nova comes to the front (like the desktop app on launch), at most this often. */
+    private const val EVERY = 30 * 60 * 1000L
     /** Passive line for Settings › About. */
     val status = MutableStateFlow("")
     val ready = MutableStateFlow<File?>(null)
@@ -87,15 +88,18 @@ object Updater {
             !it.optBoolean("draft") && !it.optBoolean("prerelease") && it.optString("tag_name").startsWith("android-v")
         } ?: return
         val version = release.getString("tag_name").removePrefix("android-v")
-        NovaRuntime.store.prefs.edit().putLong("updateCheckedAt", System.currentTimeMillis()).apply()
+        // Recorded only once a check has fully succeeded, so a failure is retried next time.
+        fun checked() = NovaRuntime.store.prefs.edit().putLong("updateCheckedAt", System.currentTimeMillis()).apply()
         dir.listFiles()?.forEach { if (!it.name.contains(version)) it.delete() } // leftovers of installed versions
-        if (!newer(version, BuildConfig.VERSION_NAME)) { status.value = "Up to date"; return }
+        if (!newer(version, BuildConfig.VERSION_NAME)) { status.value = "Up to date"; checked(); return }
         val assets = release.getJSONArray("assets").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
         val apk = assets.firstOrNull { it.getString("name").endsWith(".apk") } ?: return
         val name = apk.getString("name")
         val file = File(dir, name)
         if (!file.isFile) {
-            if (app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered) { status.value = "Version $version will download on Wi-Fi"; return }
+            // Needs ACCESS_NETWORK_STATE (github manifest); without it this threw and 1.2.0 never updated.
+            val metered = runCatching { app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered }.getOrDefault(true)
+            if (metered) { status.value = "Version $version will download on Wi-Fi"; return }
             status.value = "Downloading version $version…"
             dir.mkdirs()
             val part = File(dir, "$name.part")
@@ -112,6 +116,7 @@ object Updater {
         }
         readyVersion = version
         ready.value = file
+        checked()
         status.value = if (canInstallSilently()) "Version $version installs next time you leave Nova" else "Version $version is ready to install"
     }
 
