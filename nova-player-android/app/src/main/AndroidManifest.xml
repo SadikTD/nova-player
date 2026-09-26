@@ -70,6 +70,8 @@
             </intent-filter>
         </activity>
         <service android:name=".PlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <!-- Result of installing a self-update (GitHub build only; see Updater.kt). -->
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
     </application>
 </manifest>
 

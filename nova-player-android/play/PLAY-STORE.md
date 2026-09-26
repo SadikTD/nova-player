@@ -8,7 +8,7 @@ Graphics are in this folder (`icon-512.png`, `feature-graphic.png`, `screenshots
 ## 0. Before you start
 
 - **Upload file:** `dist/android/Nova-Player-Android-<version>.aab` on this PC (or build with
-  `gradlew :app:bundleRelease`). Play takes the AAB, not the APK.
+  `gradlew :app:bundlePlayRelease`). Play takes the AAB, not the APK.
 - **Signing:** when Console asks about *Play App Signing*, choose
   **"Use my own key" → "Export and upload a key from Java keystore"** and follow its
   PEPK instructions with `%USERPROFILE%\NovaPlayer-signing\nova-release.jks`

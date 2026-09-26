@@ -36,7 +36,7 @@ Prerequisites: JDK 17, Android SDK 36, NDK 27.0.12077973, CMake 3.22.1.
    compiles them from pinned upstream sources. Gradle verifies every library against
    `native-libs.sha256` before packaging.
 2. Build:
-   - `gradlew :app:assembleRelease` / `:app:bundleRelease` — the signed APK / Play bundle.
+   - `gradlew :app:assembleGithubRelease` / `:app:bundlePlayRelease` — the signed GitHub APK (updates itself) / Play bundle (updated by Play).
      Signing reads `%USERPROFILE%/NovaPlayer-signing/keystore.properties`
      (or the path in `NOVA_SIGNING_PROPERTIES`); without it the release is unsigned.
    - `scripts/build-fast.ps1` — release-speed build installed as `com.sadik.novaplayer.debug`

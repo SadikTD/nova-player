@@ -15,7 +15,7 @@ if (-not (Test-Path -LiteralPath $env:ANDROID_HOME)) {
 }
 Push-Location -LiteralPath $novaProject
 try {
-    & .\gradlew.bat :app:assembleFast --console=plain
+    & .\gradlew.bat :app:assembleGithubFast --console=plain
     if ($LASTEXITCODE -ne 0) { throw 'Android build failed. See the Gradle error above.' }
 } finally {
     Pop-Location

@@ -114,7 +114,7 @@ object OnlineSubtitles {
         }.removePrefix("\uFEFF")
         if ('\uFFFD' in text) text = String(bytes, Charset.forName("windows-1252"))
         require(!text.trimStart().startsWith("<html", true)) { "The service returned a webpage instead of subtitles" }
-        text = if (result.format == "srt") cleanSrt(text)
+        text = if (result.format == "srt") com.sadik.novaplayer.core.SubtitleTiming.repairSrt(cleanSrt(text))
             else text.lines().filterNot { it.startsWith("Dialogue:", true) && looksLikeAd(it.substringAfterLast(",,")) }.joinToString("\n")
         require(text.isNotBlank()) { "Downloaded subtitle is empty" }
         val base = result.name.removeSuffix(".${result.format}").ifBlank { video.title.substringBeforeLast('.') }

@@ -19,8 +19,8 @@ android {
         applicationId = "com.sadik.novaplayer"
         targetSdk = 36
         minSdk = 23
-        versionCode = 4
-        versionName = "1.1.1"
+        versionCode = 5
+        versionName = "1.2.0"
         manifestPlaceholders["appLabel"] = "Nova Player"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "com.sadik.novaplayer.NativeAnalysisTest"
@@ -71,6 +71,15 @@ android {
             matchingFallbacks += "release"
             manifestPlaceholders["appLabel"] = "Nova Player"
         }
+    }
+
+    // github = the APK on GitHub Releases, which keeps itself up to date (Updater.kt) like the
+    // desktop app. play = the Play Store bundle: Play forbids self-updates and the install
+    // permission, so it has neither.
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") { dimension = "store"; buildConfigField("boolean", "SELF_UPDATE", "true") }
+        create("play") { dimension = "store"; buildConfigField("boolean", "SELF_UPDATE", "false") }
     }
 
     buildFeatures {
@@ -174,7 +183,7 @@ val verifyNativeLibs = tasks.register("verifyNativeLibs") {
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
     .configureEach { dependsOn(verifyNativeLibs) }
 // Resource-only packaging also runs for JVM tests and needs no native binaries.
-tasks.matching { it.name in setOf("packageDebug", "packageRelease", "bundleDebug", "bundleRelease") }
+tasks.matching { Regex("(package|bundle)\\w*(Debug|Release|Fast)").matches(it.name) }
     .configureEach { dependsOn(verifyNativeLibs) }
 
 val verifyReleaseNativeSources = tasks.register("verifyReleaseNativeSources") {
@@ -184,7 +193,7 @@ val verifyReleaseNativeSources = tasks.register("verifyReleaseNativeSources") {
         }
     }
 }
-tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyReleaseNativeSources) }
+tasks.matching { Regex("pre\\w*ReleaseBuild").matches(it.name) }.configureEach { dependsOn(verifyReleaseNativeSources) }
 
 dependencies {
     // Keep Compose compatible with this project's SDK 36 / AGP 8.13 toolchain.

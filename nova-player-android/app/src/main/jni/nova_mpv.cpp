@@ -435,11 +435,13 @@ Java_com_sadik_novaplayer_core_MpvNative_extractAudio(JNIEnv* env, jobject, jstr
     env->ReleaseStringUTFChars(jpath,path);env->ReleaseStringUTFChars(jaid,aid);env->ReleaseStringUTFChars(jout,output);
     return result;
 }
+// Mode 3 (most aggressive): mode 2 marks ~70% of a TV episode as speech (music, effects),
+// which leaves the aligner too little to go on; mode 3 marks ~37% and aligns far better.
 extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_com_sadik_novaplayer_core_MpvNative_detectSpeech(JNIEnv* env,jobject,jstring jpath) {
     const char* path=env->GetStringUTFChars(jpath,nullptr);FILE* file=fopen(path,"rb");env->ReleaseStringUTFChars(jpath,path);
     std::vector<double> intervals;
-    if(file){Fvad* vad=fvad_new();fvad_set_sample_rate(vad,16000);fvad_set_mode(vad,2);int16_t samples[480];double time=0,start=-1,last=0;
+    if(file){Fvad* vad=fvad_new();fvad_set_sample_rate(vad,16000);fvad_set_mode(vad,3);int16_t samples[480];double time=0,start=-1,last=0;
         while(!sync_cancel && fread(samples,sizeof(int16_t),480,file)==480){bool voiced=fvad_process(vad,samples,480)==1;if(voiced){if(start<0)start=time;last=time+.03;}else if(start>=0 && time-last>.18){if(last-start>=.09){intervals.push_back(start);intervals.push_back(last);}start=-1;}time+=.03;}
         if(start>=0 && last>start){intervals.push_back(start);intervals.push_back(last);}fvad_free(vad);fclose(file);
     }

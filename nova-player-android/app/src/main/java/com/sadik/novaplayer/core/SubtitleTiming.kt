@@ -54,6 +54,44 @@ object SubtitleTiming {
         }
     }
 
+    private fun stamp(seconds: Double): String {
+        val ms = max(0L, Math.round(seconds * 1000))
+        return "%02d:%02d:%02d,%03d".format(ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+    }
+
+    /**
+     * Desktop repairSrt port. Downloaded SRTs sometimes carry one mangled timing line, e.g. a cue
+     * running 00:00:00 → 00:32:19: it stays on screen for half an hour and ruins alignment, because
+     * the aligner reads it as half an hour of dialogue. Only cues that are out of order or
+     * impossibly long are repaired; everything else is left exactly as it was.
+     */
+    fun repairSrt(source: String): String {
+        val blocks = source.removePrefix("\uFEFF").replace("\r", "").split(Regex("\\n\\s*\\n"))
+        val timing = Regex("(\\d+:\\d{2}:\\d{2}[,.]\\d+)\\s*-->\\s*(\\d+:\\d{2}:\\d{2}[,.]\\d+)")
+        class Timed(val lines: MutableList<String>, val at: Int, var start: Double, var end: Double)
+        val parsed = blocks.map { block ->
+            val lines = block.split('\n').toMutableList()
+            val at = lines.indexOfFirst { "-->" in it }
+            val match = if (at >= 0) timing.find(lines[at]) else null
+            match?.let { Timed(lines, at, clock(it.groupValues[1]), clock(it.groupValues[2])) }
+        }
+        val timed = parsed.filterNotNull()
+        fun guess(c: Timed) = min(6.0, max(1.5, c.lines.drop(c.at + 1).joinToString(" ").length / 15.0))
+        var repaired = 0
+        for ((k, c) in timed.withIndex()) {
+            val prev = timed.getOrNull(k - 1); val next = timed.getOrNull(k + 1)
+            var start = c.start; var end = c.end
+            if (prev != null && start < prev.start - 1 && end > prev.end) start = max(prev.end, end - guess(c))
+            else if (end - start > 30) end = max(start + 0.5, min(next?.start ?: Double.POSITIVE_INFINITY, start + guess(c)))
+            if (start == c.start && end == c.end) continue
+            c.lines[c.at] = "${stamp(start)} --> ${stamp(end)}"
+            c.start = start; c.end = end
+            repaired++
+        }
+        if (repaired == 0) return source
+        return blocks.indices.joinToString("\n\n") { k -> parsed[k]?.lines?.joinToString("\n") ?: blocks[k] }
+    }
+
     fun valid(cues: List<Cue>): Boolean = cues.isNotEmpty() && cues.all {
         it.start.isFinite() && it.end.isFinite() && it.start >= 0 && it.end > it.start
     }
@@ -90,7 +128,12 @@ object SubtitleTiming {
         return Overlap(if (total > 0) matched / total else 0.0, if (cues.isNotEmpty()) hits.toDouble() / cues.size else 0.0)
     }
 
-    fun assess(before: List<Cue>, after: List<Cue>, reference: List<Cue>, duration: Double = Double.POSITIVE_INFINITY): Assessment {
+    /** [minScore]/[minCoverage] suit desktop's speech detector; callers with their own trust
+     *  signal pass 0 and combine it with [Assessment.reliable]. */
+    fun assess(
+        before: List<Cue>, after: List<Cue>, reference: List<Cue>, duration: Double = Double.POSITIVE_INFINITY,
+        minScore: Double = 0.45, minCoverage: Double = 0.65,
+    ): Assessment {
         require(valid(before) && valid(after) && valid(reference)) { "No usable subtitle or speech timings were found." }
         require(before.size == after.size && before.indices.all { before[it].text.trim() == after[it].text.trim() }) {
             "The result changed subtitle content. The original must be kept."
@@ -99,7 +142,7 @@ object SubtitleTiming {
         val next = overlap(after, reference)
         val shifts = before.indices.map { after[it].start - before[it].start }
         val sections = 1 + shifts.zipWithNext().count { (a, b) -> abs(b - a) > 0.4 }
-        val reliable = after.size >= 8 && next.score >= 0.45 && next.coverage >= 0.65 &&
+        val reliable = after.size >= 8 && next.score >= minScore && next.coverage >= minCoverage &&
             next.score >= old.score - 0.03 && shifts.maxOf { abs(it) } <= 600 &&
             after.all { it.end <= duration + 15 }
         return Assessment(after.size, (old.score * 100).roundToInt(), (next.score * 100).roundToInt(),

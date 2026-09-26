@@ -281,7 +281,7 @@ class MainActivity : ComponentActivity() {
         // MX-style first run: ask once for video access so the library fills itself — no setup screen.
         if (!NovaRuntime.hasVideoPermission() && !NovaRuntime.pref("askedVideoAccess", false)) { NovaRuntime.setPref("askedVideoAccess", true); scanDevice() }
     }
-    override fun onStart() { super.onStart(); NovaRuntime.refreshLibrary() } // pick up downloads made while Nova was away
+    override fun onStart() { super.onStart(); NovaRuntime.refreshLibrary(); Updater.onStart() } // pick up downloads made while Nova was away
     private fun handle(intent: Intent?) {
         val uri = intent?.data ?: (if (intent?.action == Intent.ACTION_SEND) (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)) else null) ?: return
         val name = runCatching { contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } }.getOrNull() ?: uri.lastPathSegment.orEmpty()
@@ -294,7 +294,7 @@ class MainActivity : ComponentActivity() {
         persist(uri); val v = NovaRuntime.store.import(uri); play(v, NovaRuntime.store.folderQueue(v))
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
-    override fun onStop() { NovaRuntime.saveProgress(); if (!inPip && !NovaRuntime.pref("backgroundPlayback", true) && NovaRuntime.state.value.video != null) NovaRuntime.pause(true); super.onStop() }
+    override fun onStop() { NovaRuntime.saveProgress(); if (!inPip && !NovaRuntime.pref("backgroundPlayback", true) && NovaRuntime.state.value.video != null) NovaRuntime.pause(true); if (!isChangingConfigurations && !inPip) Updater.onStop(); super.onStop() }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (BuildConfig.DEBUG) android.util.Log.d("NovaKey", "key $keyCode")

@@ -150,7 +150,14 @@ val LANGUAGES = listOf(
                     Text(buildAnnotatedString { append("Made by "); withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = accent.light)) { append("Sadik Hossain") } },
                         fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
                 }
-                Text("Free. No ads. No accounts. No tracking.\nUpdates are delivered automatically by Google Play.", color = Nova.Dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
+                val update by com.sadik.novaplayer.Updater.status.collectAsState()
+                val updateFile by com.sadik.novaplayer.Updater.ready.collectAsState()
+                Text("Free. No ads. No accounts. No tracking.\n" + if (com.sadik.novaplayer.Updater.enabled) "Updates itself from GitHub, quietly, in the background." else "Updates are delivered automatically by Google Play.",
+                    color = Nova.Dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
+                if (update.isNotBlank()) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(update, color = Nova.Dim, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    updateFile?.let { f -> TextButton({ com.sadik.novaplayer.Updater.install(f) }) { Text("Install now", color = accent.light) } }
+                }
                 Text("Online subtitle searches send the video's title, episode number, chosen languages and a file fingerprint to OpenSubtitles.org. Your videos and audio never leave the phone.",
                     color = Nova.Dim, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp))
                 Text("Subtitles by OpenSubtitles.org · Playback by mpv, FFmpeg and libass (GPL/LGPL) · Speech detection by libfvad (BSD).",
