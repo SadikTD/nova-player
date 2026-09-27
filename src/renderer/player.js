@@ -570,12 +570,14 @@ POP_REFRESH.subs = () => {
       <div class="pop-item ${t.selected && visible ? 'sel' : ''}" data-sid="${t.id}">
         <span class="check">${t.selected && visible ? '✓' : ''}</span>
         <span class="p-main">${esc(trackLabel(t))}</span>
-        <span class="p-side">${esc(t.codec || '')}</span>
+        <span class="p-side">${esc(t.external ? 'Added' : t.codec || '')}</span>
+        ${t.external ? `<button class="sub-del" data-del="${t.id}" title="Remove this subtitle" aria-label="Remove ${esc(trackLabel(t))}"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V4h6v3"/></svg></button>` : ''}
       </div>`).join('') +
+    (list.some(t => t.external) ? `<button class="sub-reset" id="sub-reset">Remove all added subtitles…<span>Deletes downloads and sync fixes for this video</span></button>` : '') +
     `<div class="sync-card auto-sync-card">
-      <div class="sync-heading"><span>Automatic sync</span><span class="sync-local">ON DEVICE</span></div>
-      <p class="sync-help">Match subtitles to speech across the whole video — including timing changes midway.</p>
-      <div class="sync-actions"><button class="mini-btn acc" id="auto-sync-now">Auto-sync now</button><button class="mini-btn" id="auto-sync-options">Options &amp; results</button></div>
+      <div class="sync-heading"><span>Sync to dialogue</span>${typeof SYNC !== 'undefined' && SYNC.status === 'applied' ? '<span class="sync-on">✓ Synced</span>' : ''}</div>
+      <p class="sync-help">Out of sync? Nova can line the subtitles up with what’s being said.</p>
+      <div class="sync-actions"><button class="mini-btn acc" id="auto-sync-now">${typeof SYNC !== 'undefined' && (SYNC.busy || ['applied', 'review', 'error'].includes(SYNC.status)) ? 'View sync' : 'Sync subtitles'}</button></div>
     </div>` + timingCard('sub-delay', 'Subtitle timing') +
     `<div class="sync-card drift-card">
        <div class="sync-heading"><span>Subtitle speed</span><button class="mini-btn" id="rate-reset">Reset</button></div>
@@ -596,13 +598,18 @@ POP_REFRESH.subs = () => {
   $('#sub-off').addEventListener('click', () => setProp('sub-visibility', false));
   pop.querySelectorAll('[data-sid]').forEach(el =>
     el.addEventListener('click', () => { setProp('sub-visibility', true); setProp('sid', +el.dataset.sid); }));
+  const afterRemove = r => { if (r?.error) toast(r.error); else if (r?.message) toast(r.message); };
+  pop.querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', async e => {
+    e.stopPropagation();
+    afterRemove(await window.player.removeSubtitle(+el.dataset.del));
+  }));
+  $('#sub-reset')?.addEventListener('click', async () => afterRemove(await window.player.resetSubtitles()));
   $('#sub-load').addEventListener('click', async () => {
     const r = await window.player.loadSubtitle();
     if (r && !r.error) toast('Subtitle loaded');
   });
   $('#sub-online').addEventListener('click', () => { closePopover(); openSubsSheet(); });
   $('#auto-sync-now').addEventListener('click', () => openSyncSheet(true));
-  $('#auto-sync-options').addEventListener('click', () => openSyncSheet(false));
   bindTiming('sub-delay');
   const rate = $('#sub-rate');
   const applyRate = value => {

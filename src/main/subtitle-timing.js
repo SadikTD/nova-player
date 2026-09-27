@@ -31,6 +31,37 @@ function cues(text, ext = '.srt') {
     return match ? [{ start: clock(match[1]), end: clock(match[2]), text: lines.slice(i + 1).join('\n') }] : [];
   });
 }
+function stamp(t) {
+  const ms = Math.max(0, Math.round(t * 1000)), pad = (n, w = 2) => String(n).padStart(w, '0');
+  return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+}
+/* Downloaded SRTs sometimes carry one mangled timing line, e.g. a cue running
+ * 00:00:00 → 00:32:19. It stays on screen for half an hour and ruins alignment,
+ * because the aligner reads it as half an hour of speech. Repair only cues that
+ * are out of order or impossibly long; everything else is left byte-for-byte. */
+function repairSrt(text) {
+  const blocks = text.replace(/^\uFEFF/, '').replace(/\r/g, '').split(/\n\s*\n/);
+  const parsed = blocks.map(block => {
+    const lines = block.split('\n'), i = lines.findIndex(s => s.includes('-->'));
+    const m = i >= 0 && lines[i].match(/(\d+:\d{2}:\d{2}[,.]\d+)\s*-->\s*(\d+:\d{2}:\d{2}[,.]\d+)/);
+    return m ? { lines, i, start: clock(m[1]), end: clock(m[2]) } : null;
+  });
+  const timed = parsed.filter(Boolean);
+  const guess = c => Math.min(6, Math.max(1.5, c.lines.slice(c.i + 1).join(' ').length / 15));
+  let repaired = 0;
+  timed.forEach((c, k) => {
+    const prev = timed[k - 1], next = timed[k + 1];
+    let { start, end } = c;
+    if (prev && start < prev.start - 1 && end > prev.end) start = Math.max(prev.end, end - guess(c));
+    else if (end - start > 30) end = Math.max(start + 0.5, Math.min(next ? next.start : Infinity, start + guess(c)));
+    if (start === c.start && end === c.end) return;
+    c.lines[c.i] = `${stamp(start)} --> ${stamp(end)}`;
+    Object.assign(c, { start, end });
+    repaired++;
+  });
+  if (!repaired) return { text, repaired };
+  return { text: blocks.map((b, k) => parsed[k] ? parsed[k].lines.join('\n') : b).join('\n\n'), repaired };
+}
 function valid(list) {
   return list.length > 0 && list.every(c => Number.isFinite(c.start) && Number.isFinite(c.end) && c.start >= 0 && c.end > c.start);
 }
@@ -57,9 +88,12 @@ function overlap(list, speech) {
   }
   return { score: total ? matched / total : 0, coverage: list.length ? hits / list.length : 0 };
 }
+// alass rewrites the file and trims trailing spaces on each line, which is
+// common in downloaded subtitles. Only the words themselves have to survive.
+const words = text => text.replace(/\s+/g, ' ').trim();
 function assess(before, after, reference, duration = Infinity) {
   if (!valid(before) || !valid(after) || !valid(reference)) throw Error('No usable subtitle or speech timings were found.');
-  if (before.length !== after.length || before.some((c, i) => c.text.trim() !== after[i].text.trim())) throw Error('The result changed subtitle content. The original was kept.');
+  if (before.length !== after.length || before.some((c, i) => words(c.text) !== words(after[i].text))) throw Error('The sync tool altered the subtitle text, so the result was discarded. Your original subtitles are unchanged.');
   const old = overlap(before, reference), next = overlap(after, reference);
   const shifts = after.map((c, i) => c.start - before[i].start);
   const sorted = [...shifts].sort((a, b) => a - b);
@@ -71,4 +105,4 @@ function assess(before, after, reference, duration = Infinity) {
     medianShift: +sorted[Math.floor(sorted.length / 2)].toFixed(2), sections, reliable,
     note: reliable ? 'Speech timing looks consistent. Please check a few lines.' : 'This match needs a listening check. Preview it or try another subtitle.' };
 }
-module.exports = { cues, valid, overlap, assess };
+module.exports = { cues, valid, overlap, assess, repairSrt };

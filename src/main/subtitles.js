@@ -22,6 +22,7 @@ const path = require('path');
 const https = require('https');
 const zlib = require('zlib');
 const { app } = require('electron');
+const { repairSrt } = require('./subtitle-timing');
 
 const API = 'https://rest.opensubtitles.org/search';
 // OpenSubtitles gates the legacy bridge on this header. A made-up product
@@ -498,7 +499,7 @@ function cleanSrt(text) {
     cues.push(lines[at].trim() + '\n' + body);
   }
   if (!cues.length) return { text: normalised, removed: 0 };
-  return { text: cues.map((c, i) => `${i + 1}\n${c}`).join('\n\n') + '\n', removed };
+  return { text: repairSrt(cues.map((c, i) => `${i + 1}\n${c}`).join('\n\n') + '\n').text, removed };
 }
 
 /* Where to write. Next to the video is what everyone expects — it means mpv

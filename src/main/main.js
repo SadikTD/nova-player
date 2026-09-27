@@ -85,13 +85,13 @@ function createWindow() {
     if (name === 'file-changing') { subtitleSync?.fileChanged(); return; }
     if (name === 'file-ready') {
       clearTimeout(subtitleSyncTimer);
-      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic(), 1500);
+      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic({ opened: true }), 1500);
       return;
     }
     if (name === 'file-changed') {
       subtitleSync?.fileChanged();
       clearTimeout(subtitleSyncTimer);
-      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic(), 1500);
+      subtitleSyncTimer = setTimeout(() => subtitleSync?.automatic({ opened: true }), 1500);
       return;
     }
     if (name === 'playback-ended') subtitleSync?.fileChanged();
@@ -302,7 +302,8 @@ ipcMain.handle('player-load-sub', async () => {
 });
 
 // Automatic subtitle alignment stays in the main process; renderer supplies no paths.
-ipcMain.handle('subsync-state', () => subtitleSync?.getState());
+ipcMain.handle('subsync-state', () => subtitleSync && { ...subtitleSync.getState(), saved: subtitleSync.savedCount() });
+ipcMain.handle('subsync-dismiss', () => subtitleSync?.dismiss());
 ipcMain.handle('subsync-start', (_e, options = {}) => subtitleSync?.start({ mode: options.mode, force: options.force === true }));
 ipcMain.handle('subsync-cancel', () => subtitleSync?.cancel());
 ipcMain.handle('subsync-apply', () => subtitleSync?.apply());
@@ -357,12 +358,109 @@ async function runSearch(file, opts = {}) {
  * not nag on every replay. */
 const autoTried = new Set();
 
+/* Videos whose subtitles the user removed. Auto-fetch leaves them alone until
+ * the user picks a subtitle for them again. Kept in its own small file. */
+const optOutFile = () => path.join(app.getPath('userData'), 'subtitle-optouts.json');
+function subtitleOptOuts() {
+  try { return new Set(JSON.parse(fs.readFileSync(optOutFile(), 'utf8'))); } catch (_) { return new Set(); }
+}
+function setSubtitleOptOut(file, on) {
+  const set = subtitleOptOuts(), key = file.toLowerCase();
+  if (on === set.has(key)) return;
+  on ? set.add(key) : set.delete(key);
+  try { fs.writeFileSync(optOutFile(), JSON.stringify([...set])); } catch (_) {}
+}
+
+/* Subtitle files that belong to a video: next to it with the same base name, or
+ * in Nova's fallback download folder. Only these are ever moved to the Recycle
+ * Bin; a file loaded from anywhere else is just unloaded. */
+function ownedSubtitle(video, file) {
+  if (!video || !file || /^[a-z]+:\/\//i.test(video)) return false;
+  const base = path.basename(video, path.extname(video)).toLowerCase();
+  const dir = path.dirname(file).toLowerCase();
+  return /\.(srt|ass|ssa|sub|vtt|idx|sup)$/i.test(file) && path.basename(file).toLowerCase().startsWith(base) &&
+    (dir === path.dirname(video).toLowerCase() || dir === subtitles.fallbackDir().toLowerCase());
+}
+function subtitleFilesFor(video) {
+  const out = [];
+  for (const dir of [path.dirname(video), subtitles.fallbackDir()]) {
+    try { for (const n of fs.readdirSync(dir)) { const f = path.join(dir, n); if (ownedSubtitle(video, f)) out.push(f); } } catch (_) {}
+  }
+  return out;
+}
+async function unloadSubtitle(id) {
+  try { await mpv.command(['sub-remove', id]); } catch (_) {}
+}
+
+/* Remove one external subtitle track. A synced copy just drops that fix; an
+ * original file goes to the Recycle Bin together with every fix made from it. */
+ipcMain.handle('subs-remove', async (_e, id) => {
+  if (!mpv?.isActive()) return { error: 'Nothing is playing' };
+  const video = mpv.currentPath();
+  const tracks = await mpv.getProp('track-list').catch(() => []);
+  const track = (tracks || []).find(t => t.type === 'sub' && t.id === id);
+  if (!track?.external || !track['external-filename']) return { error: 'Built-in subtitles are part of the video file and can’t be removed.' };
+  const file = track['external-filename'];
+  if (subtitleSync?.isFix(file)) {
+    const record = subtitleSync.metadataFor(file);
+    await unloadSubtitle(id);
+    subtitleSync.forget({ source: record.source });
+    const original = subtitleSync.sourceTrack(tracks, record);
+    if (original) await mpv.command(['set_property', 'sid', original.id]).catch(() => {});
+    await mpv.command(['set_property', 'sub-delay', 0]).catch(() => {});
+    return { ok: true, message: 'Sync fix removed. Showing the original timing.' };
+  }
+  const owned = ownedSubtitle(video, file);
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question', buttons: ['Remove', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    title: 'Remove subtitle', message: `Remove “${path.basename(file)}”?`,
+    detail: owned ? 'The file will be moved to the Recycle Bin, and any sync fixes made from it will be deleted.' : 'It will be unloaded from this video. The file itself is not in the video’s folder, so it stays where it is.'
+  });
+  if (response !== 0) return { cancelled: true };
+  // Unload the file and any synced copies made from it.
+  const madeFrom = f => subtitleSync?.isFix(f) && samePath(subtitleSync.metadataFor(f).source, file);
+  for (const t of tracks.filter(t => t.type === 'sub' && t.external && (samePath(t['external-filename'], file) || madeFrom(t['external-filename'])))) {
+    await unloadSubtitle(t.id);
+  }
+  subtitleSync?.forget({ source: file });
+  if (owned) { try { await shell.trashItem(file); } catch (err) { return { error: 'The file could not be moved to the Recycle Bin: ' + err.message }; } }
+  if (!subtitles.hasLocalSubtitle(video)) setSubtitleOptOut(video, true);
+  return { ok: true, message: owned ? 'Subtitle moved to the Recycle Bin.' : 'Subtitle unloaded.' };
+});
+
+/* Put a video back the way it was: no downloaded or synced subtitles, normal
+ * timing, and no automatic download next time it opens. */
+ipcMain.handle('subs-reset', async () => {
+  if (!mpv?.isActive()) return { error: 'Nothing is playing' };
+  const video = mpv.currentPath();
+  if (!video || /^[a-z]+:\/\//i.test(video)) return { error: 'This works for videos on your computer.' };
+  const files = subtitleFilesFor(video);
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question', buttons: ['Remove all', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    title: 'Remove subtitles for this video',
+    message: 'Remove the downloaded subtitles and sync fixes for this video?',
+    detail: (files.length ? `${files.length} subtitle ${files.length === 1 ? 'file' : 'files'} will be moved to the Recycle Bin:\n${files.map(f => '• ' + path.basename(f)).join('\n')}\n\n` : '') +
+      'Subtitles built into the video are not affected. Nova won’t download subtitles for this video again unless you choose one.'
+  });
+  if (response !== 0) return { cancelled: true };
+  subtitleSync?.cancel();
+  const tracks = await mpv.getProp('track-list').catch(() => []);
+  for (const t of (tracks || []).filter(t => t.type === 'sub' && t.external)) await unloadSubtitle(t.id);
+  subtitleSync?.forget({ video });
+  let failed = 0;
+  for (const f of files) { try { await shell.trashItem(f); } catch (_) { failed++; } }
+  for (const [name, value] of Object.entries({ 'sub-delay': 0, 'sub-speed': 1 })) await mpv.command(['set_property', name, value]).catch(() => {});
+  setSubtitleOptOut(video, true);
+  return failed ? { error: `${failed} file(s) could not be moved to the Recycle Bin.` } : { ok: true, message: 'Subtitles removed. This video is back to how it was.' };
+});
+
 async function autoFetchSubtitles(file) {
   const s = subtitleSettings();
   if (!s.onlineSubs || !s.autoSubs) return;
   if (!file || /^[a-z]+:\/\//i.test(file)) return;      // streams: no hash, rarely a hit
   if (autoTried.has(file.toLowerCase())) return;
   autoTried.add(file.toLowerCase());
+  if (subtitleOptOuts().has(file.toLowerCase())) return;   // the user removed its subtitles
   if (subtitles.hasLocalSubtitle(file)) return;
 
   mpv?.sendOverlay('subs-auto', { state: 'searching' });
@@ -421,6 +519,7 @@ ipcMain.handle('subs-apply', async (_e, id) => {
     const got = await subtitles.download(file, sub);
     if (!mpv?.isActive() || !samePath(mpv.currentPath(), file)) return { error: 'The video changed while the subtitle was downloading.' };
     await mpv.addSubtitle(got.file, true);
+    setSubtitleOptOut(file, false);
     subtitleSync?.automatic({ download: true, exact: sub.hashMatch });
     return { ok: true, file: got.file, adsRemoved: got.adsRemoved, langName: sub.langName, exact: sub.hashMatch };
   } catch (err) {

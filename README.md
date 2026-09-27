@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0d1017?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/version-1.4.0-4facfe?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.5.0-4facfe?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-2f6bff?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/ads-none-37d67a?style=flat-square" alt="No ads">
   <img src="https://img.shields.io/badge/update%20nags-never-37d67a?style=flat-square" alt="No update nags">
@@ -18,6 +18,20 @@
 </p>
 
 ---
+
+## What's new in 1.5.0
+
+**Sync subtitles that are built into the video.** Many MKV files carry their own subtitle track. **Subtitles → Sync subtitles** now works on those too: Nova copies the built-in text subtitle, lines it up with the dialogue and shows the fixed copy. The video file itself is never changed. **Restore original** and removing the fix go back to the built-in track, and the fix comes back when you reopen the video. Picture-based subtitles (PGS/VobSub from Blu-ray and DVD rips) still can't be synced because they contain no text.
+
+**Simpler sync panel.** Plain names for the methods (**Best match**, **Smooth**, **Simple shift**), a one-click **Try Smooth** if the first result isn't right, and a clearer Settings card.
+
+**Remove subtitles.** Added subtitles have a delete button in the Subtitles menu, and **Remove all added subtitles…** puts a video back how it was (files go to the Recycle Bin, and Nova stops downloading subtitles for it until you pick one).
+
+**Sync fixes:**
+
+- Sync no longer fails with "The result changed subtitle content" on many downloaded subtitles.
+- Downloaded subtitles with a broken line that stayed on screen for half an hour are repaired automatically.
+- Reopening a video brings back the fix you actually chose, not the default method's.
 
 ## What's new in 1.4.0
 
@@ -59,8 +73,8 @@ Keyboard: **Z / X** adjusts subtitles by 0.1 seconds; **Shift + Z / X** adjusts 
 
 | | |
 |---|---|
-| **`Nova-Player-Setup-1.4.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
-| **`Nova.Player-1.4.0-win.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
+| **`Nova-Player-Setup-1.5.0.exe`** | Installer. Sets up Start-menu and desktop shortcuts, and registers Nova as an option for video files. Installs for your user only — **no administrator password needed**. |
+| **`Nova.Player-1.5.0-win.zip`** | No installation. Unzip anywhere (including a USB stick) and run `Nova Player.exe`. |
 
 Requires 64-bit Windows 10 or 11.
 
@@ -77,7 +91,7 @@ Nova Player isn't signed with a commercial code-signing certificate, so the firs
 This is expected for any independently released app without a paid certificate. Click **More info → Run anyway** to continue. If you'd like to confirm the download arrived intact, `SHA256SUMS.txt` is attached to every release:
 
 ```powershell
-Get-FileHash .\Nova-Player-Setup-1.4.0.exe
+Get-FileHash .\Nova-Player-Setup-1.5.0.exe
 ```
 
 ---

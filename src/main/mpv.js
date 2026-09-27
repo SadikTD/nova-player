@@ -725,9 +725,9 @@ class MpvController {
   }
 
   /* Load a subtitle file into the running engine and switch to it. */
-  async addSubtitle(file, select = true) {
+  async addSubtitle(file, select = true, title = null) {
     if (!this.sock) throw new Error('the playback engine is not running');
-    await this.command(['sub-add', file, select ? 'select' : 'auto']);
+    await this.command(['sub-add', file, select ? 'select' : 'auto', ...(title ? [title] : [])]);
     if (select) {
       // A file loaded while subtitles were switched off would otherwise arrive
       // invisibly, which reads as "the download did nothing".
