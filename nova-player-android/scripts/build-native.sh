@@ -125,6 +125,15 @@ cp -v deps/mpv/include/mpv/client.h \
       "$APP_DIR/app/src/main/jni/include/mpv/" 2>/dev/null || \
 	cp -v deps/mpv/include/mpv/client.h "$APP_DIR/app/src/main/jni/include/mpv/"
 
+# FFmpeg's public headers, for reading built-in subtitle tracks (MpvNative.extractSubtitle).
+# Taken from the last ABI built; avconfig.h is the same on every 64-bit little-endian ABI.
+echo "==> installing FFmpeg headers"
+ffinc="$APP_DIR/app/src/main/jni/include/ffmpeg"
+rm -rf "$ffinc"; mkdir -p "$ffinc"
+for lib in libavformat libavcodec libavutil; do
+	cp -rv "prefix/$prefix/include/$lib" "$ffinc/"
+done
+
 # ----------------------------------------------------------------- manifest
 echo "==> writing native-libs.sha256"
 (

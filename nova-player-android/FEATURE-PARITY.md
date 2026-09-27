@@ -67,7 +67,7 @@ creation/reorder, A–B loop, reference-subtitle sync, batch subtitle download.
 - [ ] Timing drift/cut correction, overlap estimate and uncertain-result review.
 - [ ] Apply corrected copy, preserve/restore original and reuse approved results.
 - [ ] Download/local-open opt-ins and exact-match analysis skipping.
-- [ ] Explicit limits for embedded/image subtitles and network-stream auto-sync.
+- [x] Embedded text subtitles (SRT/ASS/MP4 text) are copied out of the video and synced, with undo back to the built-in track (1.2.3, emulator-verified); image subtitles and network streams are refused with a plain message.
 
 ## Android equivalents and additions
 

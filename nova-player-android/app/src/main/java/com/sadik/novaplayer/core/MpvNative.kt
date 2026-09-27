@@ -18,6 +18,9 @@ object MpvNative {
 
     external fun extractAudio(path: String, aid: String, output: String): Int
     external fun detectSpeech(path: String): DoubleArray
+    /** Copies subtitle stream [stream] (FFmpeg index) of the open video [fd] to [output] as SRT or ASS.
+     *  Returns the number of lines, -2 for a picture subtitle, -1000 if cancelled, else < 0. */
+    external fun extractSubtitle(fd: Int, stream: Int, output: String): Int
     external fun cancelAnalysis()
     external fun create(appctx: Context)
     external fun initialize(callback: Class<*>): Int

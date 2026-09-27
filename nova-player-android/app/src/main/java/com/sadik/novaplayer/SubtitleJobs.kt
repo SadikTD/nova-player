@@ -40,6 +40,43 @@ object SubtitleJobs {
     fun outdated(path:String)=isFix(path)&&runCatching{File("$path.version").readText().trim()}.getOrNull()!=VERSION
     /** The subtitle a fix was made from, and the video it was made for. */
     fun fixSource(path:String)=runCatching{File(File(path).parentFile,"source.txt").readLines()}.getOrNull()?.let{it.getOrNull(0).orEmpty() to it.getOrNull(1).orEmpty()}
+    /** For a fix made from a subtitle built into the video: that track's FFmpeg stream index. */
+    fun fixEmbedded(path:String)=if(!isFix(path))null else runCatching{File(File(path).parentFile,"source.txt").readLines()}.getOrNull()
+        ?.getOrNull(2)?.removePrefix("embedded:")?.toIntOrNull()
+    /** Text formats a built-in track can be copied out as. Picture subtitles (PGS, VobSub) have no text. */
+    private val TEXT_CODECS=setOf("subrip","srt","text","webvtt","mov_text","ass","ssa")
+    /** The subtitle track on screen: its index in track-list, whether it's a file, and the file. */
+    private data class Shown(val index:Int,val external:Boolean,val file:String,val stream:Int,val codec:String,val title:String)
+    private fun shown(fallback:Boolean=false):Shown?{
+        val e=NovaRuntime.engine
+        val n=e.getLong("track-list/count").toInt()
+        fun sub(i:Int)=e.getStr("track-list/$i/type")=="sub"
+        // Subtitles off and nothing added: syncing means "these subtitles", so use the first
+        // built-in text track and turn it on.
+        val i=(0 until n).firstOrNull{sub(it)&&e.getFlag("track-list/$it/selected")}
+            ?:(if(fallback)(0 until n).firstOrNull{sub(it)&&!e.getFlag("track-list/$it/external")&&e.getStr("track-list/$it/codec").orEmpty().lowercase() in TEXT_CODECS}
+                ?.also{NovaRuntime.selectTrack("sub",e.getStr("track-list/$it/id").orEmpty());NovaRuntime.flag("sub-visibility",true)} else null)
+            ?:return null
+        val b="track-list/$i"
+        val ff=e.getStr("$b/ff-index")?.toIntOrNull()?:-1
+        return Shown(i,e.getFlag("$b/external"),e.getStr("$b/external-filename").orEmpty(),ff,e.getStr("$b/codec").orEmpty().lowercase(),
+            listOfNotNull(e.getStr("$b/title"),e.getStr("$b/lang")?.uppercase()).joinToString(" ").ifBlank{"Track ${e.getStr("$b/id").orEmpty()}"})
+    }
+    /** Copy a built-in subtitle out of the video (once; reused afterwards) so it can be synced like a file. */
+    private fun extractEmbedded(uri:Uri,stream:Int,target:File){
+        if(target.isFile&&target.length()>0)return
+        val resolver=NovaRuntime.app.contentResolver
+        val fd=runCatching{if(uri.scheme=="content")resolver.openFileDescriptor(uri,"r") else android.os.ParcelFileDescriptor.open(File(uri.path!!),android.os.ParcelFileDescriptor.MODE_READ_ONLY)}.getOrNull()
+            ?:throw IllegalStateException("Nova can't open this video's file any more. Open it again from the library and retry.")
+        val part=File(target.path+".part")
+        val count=try{MpvNative.extractSubtitle(fd.fd,stream,part.path)}finally{fd.close()}
+        if(count==-1000){part.delete();throw CancellationException("cancelled")}
+        if(count<=0||!part.isFile){part.delete()
+            throw IllegalStateException(when(count){-2->"This subtitle is stored as pictures, not text, so it can't be synced. Find one online or open a subtitle file instead."
+                0->"The subtitle built into this video has no text lines to sync."
+                else->"Nova couldn't read the subtitle built into this video. Try finding one online instead."})}
+        if(!part.renameTo(target)){part.copyTo(target,true);part.delete()}
+    }
 
     /**
      * Subtitle text exactly as stored. Every byte except the timing lines must survive a sync,
@@ -85,10 +122,25 @@ object SubtitleJobs {
         if(job?.isActive==true)return
         val video=NovaRuntime.state.value.video?:return
         fun fail(message:String){state.value=SyncState("error",message,video=video.uri,mode=mode)}
-        val source=File(video.originalSub.ifBlank{video.externalSub})
-        if(video.originalSub.isBlank()&&video.externalSub.isBlank()||!source.isFile)return fail("Add a subtitle file first: find one online or open one. Subtitles built into the video can't be synced yet.")
-        if(source.extension.lowercase() !in setOf("srt","ass","ssa"))return fail("Sync works with SRT, ASS and SSA subtitles. This one is ${source.extension.uppercase()}.")
         val uri=Uri.parse(video.uri)
+        // Sync what's on screen. A fix shown now is redone from the subtitle it was made from.
+        val on=shown(fallback=video.originalSub.isBlank()&&video.externalSub.isBlank())
+        val fromFix=on?.file?.takeIf{on.external&&isFix(it)}
+        val embedded=if(fromFix!=null)fixEmbedded(fromFix) else if(on!=null&&!on.external)on.stream else null
+        val source=when{
+            on!=null&&!on.external->{
+                if(on.codec !in TEXT_CODECS)return fail("This subtitle is stored as pictures, not text, so it can't be synced. Find one online or open a subtitle file instead.")
+                if(on.stream<0||uri.scheme !in setOf("file","content"))return fail("Built-in subtitles can be synced for videos stored on your phone. Find one online instead.")
+                val safe=on.title.replace(Regex("[^\\p{L}\\p{N} ._-]")," ").trim().take(60)
+                NovaRuntime.subtitleFile("${stableId(video.uri)}-embedded-${on.stream}","Built-in $safe.${if(on.codec=="ass"||on.codec=="ssa")"ass" else "srt"}")
+            }
+            fromFix!=null&&embedded!=null->File(fixSource(fromFix)!!.first)
+            fromFix!=null->File(fixSource(fromFix)?.first?.takeIf{File(it).isFile}?:video.originalSub.ifBlank{video.externalSub})
+            on!=null->File(on.file)
+            else->File(video.originalSub.ifBlank{video.externalSub})
+        }
+        if(embedded==null&&(source.path.isBlank()||!source.isFile))return fail("Turn on a subtitle first: pick one in Subtitles, find one online, or open a file.")
+        if(source.extension.lowercase() !in setOf("srt","ass","ssa"))return fail("Sync works with SRT, ASS and SSA subtitles. This one is ${source.extension.uppercase()}.")
         if(reference==null&&uri.scheme !in setOf("file","content"))return fail("Sync works for videos stored on your phone. For a stream, use \"Match another subtitle file\".")
         // "no" = the viewer turned the sound off; the dialogue is still in the default track.
         val aid=NovaRuntime.engine.getStr("aid")?.takeIf{it!="no"}?:"auto"
@@ -100,6 +152,10 @@ object SubtitleJobs {
             var shift=0.0
             try {
                 val result=withContext(Dispatchers.IO){
+                    if(embedded!=null&&!(source.isFile&&source.length()>0)){
+                        state.value=state.value.copy(message="Reading the subtitles built into the video…")
+                        extractEmbedded(uri,embedded,source);ensureActive()
+                    }
                     val (text,charset)=readSubtitle(source)
                     // A mangled cue (e.g. 00:00:00 → 00:32:19) reads as half an hour of dialogue and ruins alignment.
                     val original=if(source.extension.equals("srt",true))SubtitleTiming.repairSrt(text) else text
@@ -134,7 +190,7 @@ object SubtitleJobs {
                     output.parentFile?.mkdirs()
                     output.writeBytes(SubtitleAlign.rewrite(original,source.extension,corrected).toByteArray(charset))
                     File(output.path+".version").writeText(VERSION)
-                    File(output.parentFile,"source.txt").writeText(source.path+"\n"+video.uri)
+                    File(output.parentFile,"source.txt").writeText(source.path+"\n"+video.uri+(if(embedded!=null)"\nembedded:$embedded" else ""))
                     shift=assessment.medianShift
                     Triple(output,if(assessment.reliable)"A fix is ready." else "Nova found a new timing but isn't sure it's right. Try it and see.",assessment.reliable)
                 }

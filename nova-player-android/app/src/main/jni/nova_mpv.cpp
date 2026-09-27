@@ -447,3 +447,129 @@ Java_com_sadik_novaplayer_core_MpvNative_detectSpeech(JNIEnv* env,jobject,jstrin
     }
     jdoubleArray out=env->NewDoubleArray(intervals.size());if(!intervals.empty())env->SetDoubleArrayRegion(out,0,intervals.size(),intervals.data());return out;
 }
+
+// Subtitles built into the video (MKV/MP4 text tracks), copied out so they can be synced like a
+// file. Only the chosen stream's packets are read, no decoders or encoders, which the player's
+// FFmpeg build may leave out. Text tracks store one cue per packet: SRT/WebVTT/plain text as is,
+// MP4 tx3g behind a 2-byte length, ASS as "ReadOrder,Layer,Style,...,Text" with the file's
+// header in extradata. Returns the number of cues, -2 for a picture subtitle, -1000 if cancelled.
+#include <algorithm>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+extern "C" {
+#include <libavformat/avformat.h>
+}
+struct FdIo { int fd; int64_t pos; };
+static int fd_read(void* opaque, uint8_t* buf, int size) {
+    auto* io = (FdIo*)opaque;
+    ssize_t n = pread(io->fd, buf, size, io->pos);
+    if (n < 0) return AVERROR(errno);
+    if (n == 0) return AVERROR_EOF;
+    io->pos += n; return (int)n;
+}
+static int64_t fd_seek(void* opaque, int64_t offset, int whence) {
+    auto* io = (FdIo*)opaque;
+    struct stat st{};
+    if (whence & AVSEEK_SIZE) return fstat(io->fd, &st) == 0 ? (int64_t)st.st_size : -1;
+    whence &= ~AVSEEK_FORCE;
+    if (whence == SEEK_SET) io->pos = offset;
+    else if (whence == SEEK_CUR) io->pos += offset;
+    else if (whence == SEEK_END) { if (fstat(io->fd, &st) != 0) return -1; io->pos = st.st_size + offset; }
+    else return -1;
+    return io->pos;
+}
+struct TextCue { double start, end; int64_t order; std::string text; };
+static std::string stamp(double t, bool ass) {
+    long long ms = (long long)(std::max(0.0, t) * 1000 + .5);
+    char out[40];
+    if (ass) snprintf(out, sizeof out, "%lld:%02lld:%02lld.%02lld", ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000 / 10);
+    else snprintf(out, sizeof out, "%02lld:%02lld:%02lld,%03lld", ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000);
+    return out;
+}
+static void trim_end(std::string& s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ' || s.back() == '\0')) s.pop_back();
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_com_sadik_novaplayer_core_MpvNative_extractSubtitle(JNIEnv* env, jobject, jint fd, jint stream, jstring jout) {
+    sync_cancel = false;
+    const int buffer_size = 1 << 16;
+    FdIo io{fd, 0};
+    auto* buffer = (uint8_t*)av_malloc(buffer_size);
+    AVIOContext* avio = buffer ? avio_alloc_context(buffer, buffer_size, 0, &io, fd_read, nullptr, fd_seek) : nullptr;
+    AVFormatContext* fmt = avio ? avformat_alloc_context() : nullptr;
+    if (!fmt) { if (avio) { av_freep(&avio->buffer); avio_context_free(&avio); } else av_free(buffer); return -1; }
+    fmt->pb = avio;
+    fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
+    int result = avformat_open_input(&fmt, nullptr, nullptr, nullptr);   // frees fmt on failure
+    std::vector<TextCue> cues;
+    bool ass = false;
+    std::string header;
+    if (result >= 0 && (stream < 0 || stream >= (int)fmt->nb_streams)) result = -1;
+    if (result >= 0) {
+        AVStream* st = fmt->streams[stream];
+        AVCodecID id = st->codecpar->codec_id;
+        ass = id == AV_CODEC_ID_ASS || id == AV_CODEC_ID_SSA;
+        bool text = ass || id == AV_CODEC_ID_SUBRIP || id == AV_CODEC_ID_TEXT || id == AV_CODEC_ID_WEBVTT || id == AV_CODEC_ID_MOV_TEXT;
+        if (st->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE || !text) result = -2;
+        if (ass && st->codecpar->extradata_size > 0) header.assign((const char*)st->codecpar->extradata, st->codecpar->extradata_size);
+        for (unsigned i = 0; i < fmt->nb_streams; i++) fmt->streams[i]->discard = (int)i == stream ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
+        // mpv counts time from the start of the file; match it.
+        double origin = fmt->start_time != AV_NOPTS_VALUE ? fmt->start_time / (double)AV_TIME_BASE : 0;
+        AVPacket* pkt = result >= 0 ? av_packet_alloc() : nullptr;
+        int64_t order = 0;
+        while (pkt && !sync_cancel) {
+            int r = av_read_frame(fmt, pkt);
+            if (r == AVERROR_EOF) break;
+            if (r < 0) { result = r; break; }
+            int64_t ts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
+            if (pkt->stream_index == stream && pkt->size > 0 && ts != AV_NOPTS_VALUE) {
+                double start = ts * av_q2d(st->time_base) - origin;
+                double end = pkt->duration > 0 ? start + pkt->duration * av_q2d(st->time_base) : -1;
+                const char* data = (const char*)pkt->data; int size = pkt->size;
+                if (id == AV_CODEC_ID_MOV_TEXT) { int n = size >= 2 ? (pkt->data[0] << 8 | pkt->data[1]) : 0; data += 2; size = std::min(n, std::max(0, size - 2)); }
+                std::string line(data, size);
+                line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+                trim_end(line);
+                int64_t readOrder = order++;
+                if (ass) {
+                    // "ReadOrder,Layer,rest" -> Layer and rest, joined by \x01 until the times go in between.
+                    size_t a = line.find(','), b = a == std::string::npos ? a : line.find(',', a + 1);
+                    if (b == std::string::npos) line.clear();
+                    else { readOrder = atoll(line.substr(0, a).c_str()); line = line.substr(a + 1, b - a - 1) + '\x01' + line.substr(b + 1); }
+                }
+                if (!line.empty()) cues.push_back({start, end, readOrder, line});
+            }
+            av_packet_unref(pkt);
+        }
+        av_packet_free(&pkt);
+    }
+    if (result >= 0 && sync_cancel) result = -1000;
+    if (fmt) avformat_close_input(&fmt);
+    if (avio) { av_freep(&avio->buffer); avio_context_free(&avio); }
+    if (result < 0) return result;
+    std::stable_sort(cues.begin(), cues.end(), [](const TextCue& x, const TextCue& y) { return x.start != y.start ? x.start < y.start : x.order < y.order; });
+    for (size_t i = 0; i < cues.size(); i++) if (cues[i].end <= cues[i].start) {
+        double next = i + 1 < cues.size() && cues[i + 1].start > cues[i].start ? cues[i + 1].start : cues[i].start + 4;
+        cues[i].end = std::min(next, cues[i].start + 4);
+    }
+    const char* path = env->GetStringUTFChars(jout, nullptr);
+    FILE* out = fopen(path, "wb");
+    env->ReleaseStringUTFChars(jout, path);
+    if (!out) return -1;
+    if (ass) {
+        if (header.find("[Events]") == std::string::npos)
+            header = "[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text";
+        trim_end(header);
+        fprintf(out, "%s\n", header.c_str());
+        for (auto& c : cues) {
+            size_t cut = c.text.find('\x01');
+            fprintf(out, "Dialogue: %s,%s,%s,%s\n", c.text.substr(0, cut).c_str(), stamp(c.start, true).c_str(), stamp(c.end, true).c_str(), c.text.substr(cut + 1).c_str());
+        }
+    } else {
+        int n = 0;
+        for (auto& c : cues) fprintf(out, "%d\n%s --> %s\n%s\n\n", ++n, stamp(c.start, false).c_str(), stamp(c.end, false).c_str(), c.text.c_str());
+    }
+    return fclose(out) == 0 ? (jint)cues.size() : -1;
+}

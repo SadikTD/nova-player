@@ -21,14 +21,25 @@ set_target_properties(mpv PROPERTIES IMPORTED_LOCATION
 add_library(avcodec SHARED IMPORTED)
 set_target_properties(avcodec PROPERTIES IMPORTED_LOCATION
         ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libavcodec.so)
+# Reading subtitle tracks built into a video (MpvNative.extractSubtitle).
+add_library(avformat SHARED IMPORTED)
+set_target_properties(avformat PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libavformat.so)
+add_library(avutil SHARED IMPORTED)
+set_target_properties(avutil PROPERTIES IMPORTED_LOCATION
+        ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libavutil.so)
 
 # mpv headers are copied here by scripts/build-native.sh (ABI-independent).
+# include/ffmpeg holds the FFmpeg n9.0 public headers matching jniLibs (see its NOVA-PROVENANCE.txt).
 target_include_directories(novamplayer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/ffmpeg)
 
 target_link_libraries(novamplayer
         mpv
         avcodec
+        avformat
+        avutil
         ${log-lib})
 
 # Keep the symbol table small and strip unused sections: the APK is download-

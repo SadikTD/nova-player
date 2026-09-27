@@ -434,11 +434,12 @@ object NovaRuntime {
         val video = state.value.video ?: return
         if (SubtitleJobs.state.value.running) SubtitleJobs.cancel()
         if (SubtitleJobs.isFix(path)) {
+            val builtIn = SubtitleJobs.fixEmbedded(path)   // read before forgetFix deletes the notes
             externalTracks().filter { it.second == path }.forEach { runCatching { engine.command("sub-remove", it.first) } }
             forgetFix(path)
             engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
             val original = video.originalSub
-            val back = original.isNotBlank() && File(original).isFile && showOriginal(original)
+            val back = showEmbedded(builtIn) || (builtIn == null && original.isNotBlank() && File(original).isFile && showOriginal(original))
             if (!back) { val updated = video.copy(externalSub = ""); store.update(updated); state.value = state.value.copy(video = updated) }
             SubtitleJobs.reset()
             state.value = state.value.copy(tracks = tracks())
@@ -483,7 +484,22 @@ object NovaRuntime {
         store.update(updated); state.value = state.value.copy(video = updated)
         return true
     }
+    /** Show the built-in track with FFmpeg stream index [stream] (what a fix of a built-in subtitle was made from). */
+    private fun showEmbedded(stream: Int?): Boolean {
+        val video = state.value.video ?: return false
+        if (stream == null) return false
+        val i = (0 until engine.getLong("track-list/count").toInt()).firstOrNull {
+            engine.getStr("track-list/$it/type") == "sub" && !engine.getFlag("track-list/$it/external") && engine.getStr("track-list/$it/ff-index")?.toIntOrNull() == stream } ?: return false
+        selectTrack("sub", engine.getStr("track-list/$i/id") ?: return false)
+        val updated = (store.videos.value.find { it.uri == video.uri } ?: video).copy(externalSub = "")
+        store.update(updated); state.value = state.value.copy(video = updated)
+        return true
+    }
     fun restoreSubtitle() {
+        if (showEmbedded(SubtitleJobs.fixEmbedded(state.value.video?.externalSub.orEmpty()))) {
+            engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
+            notice.value = "Original timing restored"; return
+        }
         val path = state.value.video?.originalSub ?: return
         if (path.isBlank()) return
         engine.setDouble("sub-delay", 0.0); engine.setDouble("sub-speed", 1.0)
